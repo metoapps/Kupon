@@ -1,0 +1,1056 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Kupon</title>
+<meta name="theme-color" content="#070B12">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Kupon">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='22' fill='%23070B12'/><text y='72' x='50' text-anchor='middle' font-size='58' font-family='sans-serif' font-weight='bold' fill='%2334D399'>K</text></svg>">
+<style>
+  html,body{margin:0;padding:0;background:#070B12;}
+  #kok{min-height:100vh;}
+  .yukleme{color:#8A94AD;font-family:system-ui,sans-serif;padding:60px 20px;text-align:center;}
+</style>
+</head>
+<body>
+<div id="kok"><div class="yukleme">Kupon yükleniyor…</div></div>
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script>
+"use strict";
+const { useState, useEffect, useMemo } = React;
+/* ============================================================
+   KUPON — haftalık skor tahmini + sezonluk takım portföyü
+   ============================================================ */
+const SB_URL = "https://ovryjrniokyxiwesfsqw.supabase.co";
+const SB_KEY = "sb_publishable_Az3DBJigt3wDr_2hFktmoQ_SHULfUxi";
+const SB_BASLIK = { apikey: SB_KEY, Authorization: "Bearer " + SB_KEY, "Content-Type": "application/json" };
+/* Ortak veri Supabase'de, kimlik bilgisi cihazda */
+const depo = {
+    async get(k, s = true) {
+        if (!s) {
+            const v = localStorage.getItem(k);
+            return v === null ? null : { key: k, value: v, shared: false };
+        }
+        const r = await fetch(SB_URL + "/rest/v1/kupon_veri?select=deger&anahtar=eq." + encodeURIComponent(k), { headers: SB_BASLIK });
+        if (!r.ok)
+            throw new Error("okuma hatasi " + r.status);
+        const d = await r.json();
+        return d.length ? { key: k, value: d[0].deger, shared: true } : null;
+    },
+    async set(k, v, s = true) {
+        if (!s) {
+            localStorage.setItem(k, v);
+            return { key: k, value: v, shared: false };
+        }
+        const r = await fetch(SB_URL + "/rest/v1/kupon_veri", {
+            method: "POST",
+            headers: Object.assign({}, SB_BASLIK, { Prefer: "resolution=merge-duplicates,return=minimal" }),
+            body: JSON.stringify({ anahtar: k, deger: v, guncelleme: new Date().toISOString() }),
+        });
+        if (!r.ok)
+            throw new Error("yazma hatasi " + r.status);
+        return { key: k, value: v, shared: true };
+    },
+    async list(p, s = true) {
+        if (!s)
+            return { keys: Object.keys(localStorage).filter(x => x.startsWith(p)), shared: false };
+        const r = await fetch(SB_URL + "/rest/v1/kupon_veri?select=anahtar&anahtar=like." + encodeURIComponent(p + "*"), { headers: SB_BASLIK });
+        if (!r.ok)
+            throw new Error("liste hatasi " + r.status);
+        const d = await r.json();
+        return { keys: d.map(x => x.anahtar), shared: true };
+    },
+};
+/* Takım listesi — "gp" = 2025-26 sezonunda toplanan gerçek puan.
+   Yeni çıkan üçlü için tahmin (geçen sezon çıkan üçlü 37/34/30 almıştı). */
+const VARSAYILAN_TAKIMLAR = [
+    { ad: "Galatasaray", kod: "GS", gp: 77 },
+    { ad: "Fenerbahçe", kod: "FB", gp: 74 },
+    { ad: "Trabzonspor", kod: "TS", gp: 69 },
+    { ad: "Beşiktaş", kod: "BJK", gp: 60 },
+    { ad: "Başakşehir", kod: "IBFK", gp: 57 },
+    { ad: "Göztepe", kod: "GÖZ", gp: 55 },
+    { ad: "Samsunspor", kod: "SAM", gp: 51 },
+    { ad: "Ç. Rizespor", kod: "RİZ", gp: 41 },
+    { ad: "Konyaspor", kod: "KON", gp: 40 },
+    { ad: "Alanyaspor", kod: "ALA", gp: 37 },
+    { ad: "Kocaelispor", kod: "KOC", gp: 37 },
+    { ad: "Gaziantep FK", kod: "GFK", gp: 37 },
+    { ad: "Kasımpaşa", kod: "KSM", gp: 35 },
+    { ad: "Gençlerbirliği", kod: "GNÇ", gp: 34 },
+    { ad: "Eyüpspor", kod: "EYP", gp: 33 },
+    { ad: "Erzurumspor", kod: "ERZ", gp: 35, yeni: true },
+    { ad: "Amedspor", kod: "AMD", gp: 34, yeni: true },
+    { ad: "Çorum FK", kod: "ÇRM", gp: 33, yeni: true },
+];
+/* Beklenen puan: ligin ortalamasına doğru gerileme. Yeni çıkanlar zaten tahmin.
+   Fiyat = beklenen puan - 26, yani bütçeyi tam harcayan her portföyün
+   beklenen toplamı eşit. Fark, gerçek sezonun tahminden sapmasından doğar. */
+const LIG_ORT = 46, GERILEME = 0.7, FIYAT_TABAN = 26;
+const beklenenPuan = (t) => t.yeni ? t.gp : Math.round(LIG_ORT + GERILEME * (t.gp - LIG_ORT));
+const fiyat = (t) => Math.max(1, Math.round(beklenenPuan(t) - FIYAT_TABAN));
+/* 2026-27 Süper Lig resmi fikstürü — takım kodlarıyla, liste sıralamasından bağımsız */
+const HAZIR_TARIH = ["14–17 Ağustos", "21–24 Ağustos", "28–31 Ağustos", "6 Eylül", "13 Eylül", "20 Eylül",
+    "11 Ekim", "18 Ekim", "25 Ekim", "1 Kasım", "8 Kasım", "22 Kasım", "29 Kasım", "6 Aralık", "13 Aralık", "20 Aralık",
+    "17 Ocak", "24 Ocak", "31 Ocak", "7 Şubat", "14 Şubat", "21 Şubat", "28 Şubat", "7 Mart", "14 Mart", "21 Mart",
+    "4 Nisan", "11 Nisan", "18 Nisan", "25 Nisan", "2 Mayıs", "9 Mayıs", "16 Mayıs", "23 Mayıs"];
+const HAZIR_MACLAR = [
+    [["GS", "ÇRM"], ["KSM", "TS"], ["KON", "RİZ"], ["GFK", "ALA"], ["GNÇ", "FB"], ["IBFK", "KOC"], ["AMD", "ERZ"], ["BJK", "EYP"], ["SAM", "GÖZ"]],
+    [["ERZ", "GS"], ["RİZ", "SAM"], ["ÇRM", "KSM"], ["FB", "KON"], ["TS", "IBFK"], ["EYP", "GFK"], ["ALA", "BJK"], ["GÖZ", "GNÇ"], ["KOC", "AMD"]],
+    [["GNÇ", "ERZ"], ["KON", "KOC"], ["GFK", "RİZ"], ["GS", "GÖZ"], ["EYP", "ALA"], ["IBFK", "KSM"], ["SAM", "FB"], ["AMD", "TS"], ["BJK", "ÇRM"]],
+    [["TS", "GNÇ"], ["KSM", "AMD"], ["IBFK", "GS"], ["RİZ", "ALA"], ["GÖZ", "GFK"], ["ÇRM", "EYP"], ["FB", "BJK"], ["KOC", "SAM"], ["ERZ", "KON"]],
+    [["GFK", "FB"], ["EYP", "RİZ"], ["ALA", "GÖZ"], ["AMD", "IBFK"], ["GNÇ", "KSM"], ["KON", "TS"], ["GS", "KOC"], ["BJK", "ERZ"], ["SAM", "ÇRM"]],
+    [["TS", "GS"], ["KSM", "KON"], ["IBFK", "GNÇ"], ["AMD", "BJK"], ["GÖZ", "RİZ"], ["ÇRM", "ALA"], ["FB", "EYP"], ["KOC", "GFK"], ["ERZ", "SAM"]],
+    [["GFK", "ÇRM"], ["EYP", "GÖZ"], ["ALA", "ERZ"], ["RİZ", "FB"], ["GNÇ", "AMD"], ["KON", "IBFK"], ["GS", "KSM"], ["BJK", "KOC"], ["SAM", "TS"]],
+    [["TS", "BJK"], ["KSM", "SAM"], ["IBFK", "GFK"], ["AMD", "KON"], ["GNÇ", "GS"], ["ÇRM", "RİZ"], ["FB", "ALA"], ["KOC", "GÖZ"], ["ERZ", "EYP"]],
+    [["GFK", "ERZ"], ["EYP", "KSM"], ["ALA", "KOC"], ["RİZ", "TS"], ["GÖZ", "ÇRM"], ["KON", "GNÇ"], ["GS", "FB"], ["BJK", "IBFK"], ["SAM", "AMD"]],
+    [["TS", "GFK"], ["KSM", "BJK"], ["IBFK", "SAM"], ["AMD", "EYP"], ["GNÇ", "ALA"], ["KON", "GS"], ["FB", "GÖZ"], ["KOC", "RİZ"], ["ERZ", "ÇRM"]],
+    [["GFK", "KSM"], ["EYP", "KOC"], ["ALA", "TS"], ["RİZ", "ERZ"], ["GÖZ", "IBFK"], ["ÇRM", "FB"], ["GS", "AMD"], ["BJK", "GNÇ"], ["SAM", "KON"]],
+    [["TS", "EYP"], ["KSM", "ALA"], ["IBFK", "ÇRM"], ["AMD", "RİZ"], ["GNÇ", "GFK"], ["KON", "BJK"], ["GS", "SAM"], ["KOC", "FB"], ["ERZ", "GÖZ"]],
+    [["GFK", "AMD"], ["EYP", "IBFK"], ["ALA", "KON"], ["RİZ", "KSM"], ["GÖZ", "TS"], ["ÇRM", "KOC"], ["FB", "ERZ"], ["BJK", "GS"], ["SAM", "GNÇ"]],
+    [["TS", "ÇRM"], ["KSM", "GÖZ"], ["IBFK", "FB"], ["AMD", "ALA"], ["GNÇ", "EYP"], ["KON", "GFK"], ["GS", "RİZ"], ["BJK", "SAM"], ["ERZ", "KOC"]],
+    [["GFK", "BJK"], ["EYP", "GS"], ["ALA", "SAM"], ["RİZ", "IBFK"], ["GÖZ", "KON"], ["ÇRM", "AMD"], ["FB", "TS"], ["KOC", "GNÇ"], ["ERZ", "KSM"]],
+    [["TS", "KOC"], ["KSM", "FB"], ["IBFK", "ERZ"], ["AMD", "GÖZ"], ["GNÇ", "ÇRM"], ["KON", "EYP"], ["GS", "ALA"], ["BJK", "RİZ"], ["SAM", "GFK"]],
+    [["GFK", "GS"], ["EYP", "SAM"], ["ALA", "IBFK"], ["RİZ", "GNÇ"], ["GÖZ", "BJK"], ["ÇRM", "KON"], ["FB", "AMD"], ["KOC", "KSM"], ["ERZ", "TS"]],
+    [["ALA", "GFK"], ["TS", "KSM"], ["KOC", "IBFK"], ["ERZ", "AMD"], ["FB", "GNÇ"], ["RİZ", "KON"], ["ÇRM", "GS"], ["EYP", "BJK"], ["GÖZ", "SAM"]],
+    [["IBFK", "TS"], ["GFK", "EYP"], ["BJK", "ALA"], ["SAM", "RİZ"], ["GNÇ", "GÖZ"], ["KSM", "ÇRM"], ["KON", "FB"], ["AMD", "KOC"], ["GS", "ERZ"]],
+    [["RİZ", "GFK"], ["ALA", "EYP"], ["KSM", "IBFK"], ["TS", "AMD"], ["ERZ", "GNÇ"], ["KOC", "KON"], ["GÖZ", "GS"], ["ÇRM", "BJK"], ["FB", "SAM"]],
+    [["GNÇ", "TS"], ["AMD", "KSM"], ["GS", "IBFK"], ["ALA", "RİZ"], ["GFK", "GÖZ"], ["EYP", "ÇRM"], ["BJK", "FB"], ["SAM", "KOC"], ["KON", "ERZ"]],
+    [["FB", "GFK"], ["RİZ", "EYP"], ["GÖZ", "ALA"], ["IBFK", "AMD"], ["KSM", "GNÇ"], ["TS", "KON"], ["KOC", "GS"], ["ERZ", "BJK"], ["ÇRM", "SAM"]],
+    [["GS", "TS"], ["KON", "KSM"], ["GNÇ", "IBFK"], ["BJK", "AMD"], ["RİZ", "GÖZ"], ["ALA", "ÇRM"], ["EYP", "FB"], ["GFK", "KOC"], ["SAM", "ERZ"]],
+    [["ÇRM", "GFK"], ["GÖZ", "EYP"], ["ERZ", "ALA"], ["FB", "RİZ"], ["AMD", "GNÇ"], ["IBFK", "KON"], ["KSM", "GS"], ["KOC", "BJK"], ["TS", "SAM"]],
+    [["BJK", "TS"], ["SAM", "KSM"], ["GFK", "IBFK"], ["KON", "AMD"], ["GS", "GNÇ"], ["RİZ", "ÇRM"], ["ALA", "FB"], ["GÖZ", "KOC"], ["EYP", "ERZ"]],
+    [["ERZ", "GFK"], ["KSM", "EYP"], ["KOC", "ALA"], ["TS", "RİZ"], ["ÇRM", "GÖZ"], ["GNÇ", "KON"], ["FB", "GS"], ["IBFK", "BJK"], ["AMD", "SAM"]],
+    [["GFK", "TS"], ["BJK", "KSM"], ["SAM", "IBFK"], ["EYP", "AMD"], ["ALA", "GNÇ"], ["GS", "KON"], ["GÖZ", "FB"], ["RİZ", "KOC"], ["ÇRM", "ERZ"]],
+    [["KSM", "GFK"], ["KOC", "EYP"], ["TS", "ALA"], ["ERZ", "RİZ"], ["IBFK", "GÖZ"], ["FB", "ÇRM"], ["AMD", "GS"], ["GNÇ", "BJK"], ["KON", "SAM"]],
+    [["EYP", "TS"], ["ALA", "KSM"], ["ÇRM", "IBFK"], ["RİZ", "AMD"], ["GFK", "GNÇ"], ["BJK", "KON"], ["SAM", "GS"], ["FB", "KOC"], ["GÖZ", "ERZ"]],
+    [["AMD", "GFK"], ["IBFK", "EYP"], ["KON", "ALA"], ["KSM", "RİZ"], ["TS", "GÖZ"], ["KOC", "ÇRM"], ["ERZ", "FB"], ["GS", "BJK"], ["GNÇ", "SAM"]],
+    [["ÇRM", "TS"], ["GÖZ", "KSM"], ["FB", "IBFK"], ["ALA", "AMD"], ["EYP", "GNÇ"], ["GFK", "KON"], ["RİZ", "GS"], ["SAM", "BJK"], ["KOC", "ERZ"]],
+    [["BJK", "GFK"], ["GS", "EYP"], ["SAM", "ALA"], ["IBFK", "RİZ"], ["KON", "GÖZ"], ["AMD", "ÇRM"], ["TS", "FB"], ["GNÇ", "KOC"], ["KSM", "ERZ"]],
+    [["KOC", "TS"], ["FB", "KSM"], ["ERZ", "IBFK"], ["GÖZ", "AMD"], ["ÇRM", "GNÇ"], ["EYP", "KON"], ["ALA", "GS"], ["RİZ", "BJK"], ["GFK", "SAM"]],
+    [["GS", "GFK"], ["SAM", "EYP"], ["IBFK", "ALA"], ["GNÇ", "RİZ"], ["BJK", "GÖZ"], ["KON", "ÇRM"], ["AMD", "FB"], ["KSM", "KOC"], ["TS", "ERZ"]],
+];
+const HAZIR_FIKSTUR = Object.fromEntries(HAZIR_MACLAR.map((maclar, i) => [i + 1, { tarih: HAZIR_TARIH[i], maclar }]));
+const KREDI = 70, PORTFOY_ADET = 4;
+const BUYUK4 = ["GS", "FB", "BJK", "TS"];
+const TEK_SAHIP_CARPAN = 1.25;
+const TAKMA_ADLAR = ["Meto", "Fero", "Josh", "Buzlulatte", "Lort"];
+/* Grup avatarları — 132px, gömülü */
+const AVATARLAR = {
+    buzlulatte: "data:image/jpeg;base64,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",
+    lort: "data:image/jpeg;base64,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",
+    meto: "data:image/jpeg;base64,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",
+    fero: "data:image/jpeg;base64,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",
+    josh: "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBUODAsLDBkSEw8VHhsgHx4bHR0hJTApISMtJB0dKjkqLTEzNjY2ICg7Pzo0PjA1NjP/2wBDAQkJCQwLDBgODhgzIh0iMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzP/wAARCACEAIQDASIAAhEBAxEB/8QAGwAAAQUBAQAAAAAAAAAAAAAAAwACBAUGAQf/xAA1EAACAgEDAgUCBQIFBQAAAAABAgADEQQSIQUxBhNBUWEicRQygZGhIzMkQ1JiwXKCsdHw/8QAGAEAAwEBAAAAAAAAAAAAAAAAAAECAwT/xAAiEQEBAAICAgIDAQEAAAAAAAAAAQIREiExQQMEMlFhExT/2gAMAwEAAhEDEQA/ALLo7XPoUR67tqAjzLj9RIPb7SwKGYno/W7unA1WtmsKSMgnA9vgZwcy20/ii3WammjT6VbdwzY43YX4+/zOjHLrtzXFf7Y4COVW2KXAD45A7ZixKI9YdO0CsOkmnEivvJlRkJJKrzJq4sqG5Eu9FYOxmeqJz3lnpXII5Mzq4vRHekFW25AY+SsooooBE1mm85CR3Ey+t0u0nibFzhCZm+oWAseI4ms29Q3dopId/rMUaXjOnbUVO1+nBL1gHcOcD5HtC0l7P8QivWF9aUIDNxxx2MeorFbNSXr2jO8tyR7YHcS66LdVpxqel64bxqqwwRe9rE5Ur6AY/kS5ULnw1dZqNA7Xaq665WAdbSPp+36S5xBabpum0Kr5SHeqbPMY/UR7GGImk6iK6ohlEGohVERwVJKrkZJISTVRLrMm0vgiQEMkVtIq4v8ASXDsTxJveUFV+JLTWlR3kLWkaWA7kCV7a87e8hX61iPzQFq11FqlCocAzN9QZlYhhHWa1m7nmQ7dSXGDyPaVIioLsCx5inHVWYkED7xR6J4/X+HSqs2klS5DVFsMPTv7S+o0x629dWnNf4zSuQt2QFtTHDfJGB95R37W6ehrVAy2AHg7gMEfVxjv6zUeHtZ0nSWUMGsTVCs7g2G3j49B8e8JU1rlSxalFr+ZYB9T4xk/ac2w4K2ruQgjsceh9ovL+JrtAQEKojxXCpXAzUWSUWdSrAlb1PrOn0tbV1X1m3HZTkiTaqTawu1VWmXNjhfiAr6v5jBa6859c8TG266zUWFms4z6jMkUdRNQxkfoOJllcvTfDHH22h6iqD/djlfaNHVc47ZAz8e8yQ6iXYkk8jjmEfWF6wqthm4B9syd32rU9NmmqF9K21nKMMgwb2HErujahfwwostBcflU98SwdZU7ZXpEtcyO9hMkWrIjiVE2mGznmKNI5ijJlNN4XTXdMs1a2GnWLW1nlqM1lhkjIz8evviVHTtPq0RdZUj3IpCOaQVaokchu2BnH3nrlempq/tVVp9IX6VA4HYfbkyNT0qirT2UlFYOSWIQISM5AO3GcQ0naD0jTUJoa7KaUrLrhgqsvb0wee+ZYCuSvLnRXK2SMK4aur4hRXD118Q2GL8YdW1GndNBpWKAj+q4/wDEyaZPqfk+8uvFWp87qn4VAQKfzse7Me5lGzhRtWOeFfw9rPReAIRHMjDmPBxEuJYb5hBcVIPtIe8zpsMWhtaU9Qeq5LFGWQ55m06b1KvqumaxF2Opw6n0nnC2fUZrPBjF31nqNq/vkxa0Ldr61ZEsSWVqyK6QQgleYpIKcxQCg6P4stv1gps3Wo2ME4xn7zV6jqvT9JcK7tTWhIycsOPaeMLbsrCAMn+og9//ALtC2al3wztucDGW5kTYr16zrnSqdOLm1aMD2VeW/aSdN1DR6oE12rjjBJxnM8XsvN61k/3FGDtGMj/3LjT1tqunsAtg1FfKBGYl8+uBwMASvBPXxXnt2hq6skCeYdP6913pNYpXD6ZTtLWLuVGPPf3m46J4n0mpVa9W/lXbQQSDh/txFyPTzzxLZt6/ru+fOI5lOvPMkdY1o6h1nV6hPy2XMR9swCgAYmno4eI4RojolOzoAbiNiHeGwbYDW+DN34CrDaLW2Y58xRn9Jib/AK6g3qDieieBagvhs2Y5subPzjAhlekrW1OZHdJYOmTAtXI2EA1xSZ5UUNh4SvYfV+0fnJggVzle3tiGrUcFjgRlRKwcd8CS6L7ab1alyjAd1OM+8jfmIAI59IYr5dW/Pc4HzFuDTWad9DZ4e0w1N+GR2UV44Py36DvIFvV0qa38Kr1lFwgsOdo9vt3lJfYVrrXLbl/N8H2EF5pGmscnJLY/iT5XhJcuy8zcwKoqkjHGfqMMyumNzDOM49oKs+WiMO47EiPvu80b8YOMGbTtnl1T1c4z3+0ItgaRqrOCIRCF3MQGHzCw8bRt49xOhwTjMiIRuwY4gH0/aGhySrt1aAEfmOR8z2PovT16d0TS6Ve61hm+SeTPFbNWyqtb/WgIIJ4Ix6Tct46uavdpaxWXX/NO4j9OwkZnK3N2ypGssZURe7McASHqdbpNNp7bXvQitclVYEzzXqHijqXUKfK1OoD1g52gASts1lzJuzye/pxI1RtqNZ43ta/OlrCVY7NgnMUxRcg+v6RS9FtT1sAMkj95ILnaPY+k1z9L0dxyEUH/AKQf+JEv6HUEIFWVz3rbH8GYX5L7jTgoK+WCjGT6kyWiur1Cxcndnb8YzmSD0Ogn6b2UntvBEaOk62n66XNjYxkOMfyJN+XG+y468q+y8NZnBI+T3jWs3IVAwCwMK/TtWrf1KnX1J2Zg9R/SqRS4YhvRSMTbHKXwmeUsYK8xjIxXasbU2Vht2BHMrGvGZeQlqZeSR+kOoJrbiBNgz7mGWxVXk94+QmH6RnJrcZjw36fMIyq5wcER1dVee2T8ypnGd+Ou6egNaj3Dg5Kj3xJF77XyCR7/AHke3UE6sndgIoGYJtSWQjA578Se7dleunCeY+x8oGB7/wAQG7MfWfMGwuQAeBiVklz6vb+YocX6aobfLVz6sw7xSed/R6aDd7GPW35gWVlYqwKkdwZ1F5mDoEuorvH1DkdiO4kVhdpv9ye4GJzqHWNF0hK/xTtvf8qIMsR7/aC1XiDSUaGrVrTddTauVZQAAfY+0nL4ucG4sKdQpX6gQPmUviS+m3p9D1ooLvuDeuMGV9nULeoU5fZo6LGCk7u4+59JB1+r/EOaUfzK6SQr5zu5xn+BD4vr8Luotl8H0XYAGYVnLMSThRIOnsAbDSwIBTA7TovVPGbhKFYZGSPePP1EYOCJHVCDkEg/Ef5dlhwbGIi2rj/BVsO/awwYYWheT6SNYvl7WyTj3hOnUv1DXBCD5S8uQO0nK6mxepocaN9RpxdS6s7klkzgj2/iQ7KdTUSHosH/AGzQP0ugHIsI+0KtYrAxZuPuRMZ9nTHjtlPOI4PENpLiLGI2/lOdwmlemi7+5RW2fXbIlvS9HYjKqGot6of+JX/VjZqwcWeawbjz/MUnv4evDny7kZfQk4imv+2H7LVaJANsz/ijqWs6fVpPwuoarzs7sAZ49jiKKRj5bZeGU1uqvv1DWXXNY5JBZuc4mi8O3nTdHvtKJcAGPl3Dcn7RRTf0yqsoY9QNmov5K/lQcKv2E6UVLkVVADKc4iijogJOG4lnQxepSe8UUjLwvDyMAMQw9oopnXREHXWMowDxNL0fS16bptTV7t1uGck9zFFMfsfhGGX5DeYzE8+mYicAnvkA8894opxiA02MdOX7E84HYQhbIOQOMRRRCCFeTgkRRRRbD//Z",
+};
+const slug = (s) => s.toLowerCase().replace(/ç/g, "c").replace(/ğ/g, "g").replace(/ı/g, "i").replace(/ö/g, "o").replace(/ş/g, "s").replace(/ü/g, "u").replace(/[^a-z0-9]/g, "").slice(0, 20);
+const avatarBul = (isim) => AVATARLAR[slug(isim || "")] || null;
+function Yuz({ isim, boy = 32, vurgu = false }) {
+    const src = avatarBul(isim);
+    const ortak = {
+        width: boy, height: boy, borderRadius: "50%", flexShrink: 0,
+        border: vurgu ? "2px solid #34D399" : "1px solid #243149",
+        boxShadow: vurgu ? "0 0 0 3px rgba(16,185,129,.15)" : "none",
+    };
+    if (src)
+        return React.createElement("img", { src: src, alt: isim, style: { ...ortak, objectFit: "cover", display: "block" } });
+    return (React.createElement("div", { style: { ...ortak, background: "#16202F", color: "#8A94AD", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "'Space Grotesk',sans-serif", fontWeight: 700, fontSize: boy * 0.42 } }, (isim || "?").trim().charAt(0).toUpperCase()));
+}
+/* Puanlama */
+function macPuani(tahmin, sonuc) {
+    if (!tahmin || !sonuc)
+        return 0;
+    const [te, td] = tahmin, [se, sd] = sonuc;
+    if (te === se && td === sd)
+        return 5;
+    const ts = Math.sign(te - td), ss = Math.sign(se - sd);
+    if (ts !== ss)
+        return 0;
+    if (te - td === se - sd)
+        return 3;
+    return 2;
+}
+const bosSatir = () => ({ o: 0, g: 0, b: 0, m: 0, ag: 0, yg: 0, p: 0 });
+function Kupon() {
+    const [ekran, setEkran] = useState("giris");
+    const [sekme, setSekme] = useState("kupon");
+    const [lig, setLig] = useState("");
+    const [isim, setIsim] = useState("");
+    const [ben, setBen] = useState(null);
+    const [kurulum, setKurulum] = useState(null);
+    const [aktif, setAktif] = useState(null);
+    const [tablo, setTablo] = useState(null);
+    const [portfoy, setPortfoy] = useState({});
+    const [kuponlar, setKuponlar] = useState({});
+    const [benimKupon, setBenimKupon] = useState(null);
+    const [bilgi, setBilgi] = useState("");
+    const [mesgul, setMesgul] = useState(false);
+    const [yukleniyor, setYukleniyor] = useState(true);
+    const [yeniMac, setYeniMac] = useState({ liste: [], bekleyen: null });
+    const [sonucGiris, setSonucGiris] = useState(null);
+    const [takimDuzen, setTakimDuzen] = useState(null);
+    const [portfoySecim, setPortfoySecim] = useState([]);
+    const [resmi, setResmi] = useState(null);
+    const [resmiTaslak, setResmiTaslak] = useState(null);
+    const [kuponOnay, setKuponOnay] = useState(false);
+    const [portfoyAcik, setPortfoyAcik] = useState(false);
+    const [acikHafta, setAcikHafta] = useState(null);
+    const takimlar = (kurulum === null || kurulum === void 0 ? void 0 : kurulum.takimlar) || VARSAYILAN_TAKIMLAR;
+    const T = (i) => takimlar[i] || { ad: "?", kod: "?", guc: 60 };
+    /* ---------- açılış ---------- */
+    useEffect(() => {
+        (async () => {
+            try {
+                const k = await depo.get("kpn:kimlik", false);
+                if (k === null || k === void 0 ? void 0 : k.value) {
+                    const p = JSON.parse(k.value);
+                    setLig(p.lig);
+                    setIsim(p.isim);
+                    await ligeGir(p.lig, p.isim, true);
+                }
+            }
+            catch (e) { }
+            setYukleniyor(false);
+        })();
+    }, []);
+    async function veriYukle(lg, benSlug) {
+        const [ku, ak, tb, pf, rs, pa] = await Promise.all([
+            depo.get(`kpn:${lg}:kurulum`), depo.get(`kpn:${lg}:aktif`),
+            depo.get(`kpn:${lg}:tablo`), depo.get(`kpn:${lg}:portfoy`),
+            depo.get(`kpn:${lg}:resmi`), depo.get(`kpn:${lg}:portfoyAcik`),
+        ]).catch(() => [null, null, null, null, null, null]);
+        const kur = (ku === null || ku === void 0 ? void 0 : ku.value) ? JSON.parse(ku.value) : null;
+        const akt = (ak === null || ak === void 0 ? void 0 : ak.value) ? JSON.parse(ak.value) : null;
+        const tbl = (tb === null || tb === void 0 ? void 0 : tb.value) ? JSON.parse(tb.value) : { toplam: {}, haftalar: [], ligTablo: {} };
+        const pfy = (pf === null || pf === void 0 ? void 0 : pf.value) ? JSON.parse(pf.value) : {};
+        const rsm = (rs === null || rs === void 0 ? void 0 : rs.value) ? JSON.parse(rs.value) : null;
+        setKurulum(kur);
+        setAktif(akt);
+        setTablo(tbl);
+        setPortfoy(pfy);
+        setResmi(rsm);
+        setPortfoyAcik((pa === null || pa === void 0 ? void 0 : pa.value) === "1");
+        if (akt)
+            await kuponlariYukle(lg, akt.hafta, benSlug);
+        return { kur, akt, tbl, pfy };
+    }
+    async function resmiKaydet() {
+        const temiz = {};
+        Object.entries(resmiTaslak).forEach(([i, v]) => { if (v !== "" && v !== null && !isNaN(+v))
+            temiz[i] = +v; });
+        const kayit = { puanlar: temiz, guncelleyen: ben.isim, zaman: Date.now() };
+        await depo.set(`kpn:${lig}:resmi`, JSON.stringify(kayit));
+        setResmi(kayit);
+        setResmiTaslak(null);
+        setBilgi("Resmi puanlar kaydedildi. Portföy puanları artık buradan hesaplanıyor.");
+    }
+    async function resmiSil() {
+        await depo.set(`kpn:${lig}:resmi`, JSON.stringify(null));
+        setResmi(null);
+        setResmiTaslak(null);
+        setBilgi("Resmi puanlar silindi. Portföy yine kupon sonuçlarından hesaplanıyor.");
+    }
+    async function kuponlariYukle(lg, hafta, benSlug) {
+        try {
+            const l = await depo.list(`kpn:${lg}:kupon:${hafta}:`);
+            const out = {};
+            for (const k of ((l === null || l === void 0 ? void 0 : l.keys) || [])) {
+                const v = await depo.get(k);
+                if (v === null || v === void 0 ? void 0 : v.value) {
+                    const p = JSON.parse(v.value);
+                    out[p.slug] = p;
+                }
+            }
+            setKuponlar(out);
+            if (benSlug && out[benSlug])
+                setBenimKupon(out[benSlug]);
+            else
+                setBenimKupon(null);
+        }
+        catch (e) { }
+    }
+    async function ligeGir(lg, ad, sessiz) {
+        if (!lg.trim() || !ad.trim())
+            return;
+        setMesgul(true);
+        const s = slug(ad);
+        const kimlik = { lig: lg, isim: ad.trim(), slug: s };
+        setBen(kimlik);
+        const { kur } = await veriYukle(lg, s);
+        if (!kur) {
+            setTakimDuzen(VARSAYILAN_TAKIMLAR.map(t => ({ ...t })));
+            setEkran("takimlar");
+        }
+        else {
+            // katılımcı listesine ekle
+            if (!kur.oyuncular.some(o => o.slug === s)) {
+                const y = { ...kur, oyuncular: [...kur.oyuncular, { slug: s, isim: ad.trim() }] };
+                await depo.set(`kpn:${lg}:kurulum`, JSON.stringify(y));
+                setKurulum(y);
+            }
+            const pf = await depo.get(`kpn:${lg}:portfoy`);
+            const pfy = (pf === null || pf === void 0 ? void 0 : pf.value) ? JSON.parse(pf.value) : {};
+            if (!pfy[s]) {
+                setPortfoySecim([]);
+                setEkran("portfoyKur");
+            }
+            else
+                setEkran("oyun");
+        }
+        if (!sessiz)
+            await depo.set("kpn:kimlik", JSON.stringify(kimlik), false);
+        else
+            await depo.set("kpn:kimlik", JSON.stringify(kimlik), false);
+        setMesgul(false);
+    }
+    async function kurulumBitir() {
+        const kur = { ad: lig, takimlar: takimDuzen.filter(t => t.ad.trim()), oyuncular: [{ slug: ben.slug, isim: ben.isim }], kuran: ben.slug };
+        await depo.set(`kpn:${lig}:kurulum`, JSON.stringify(kur));
+        await depo.set(`kpn:${lig}:tablo`, JSON.stringify({ toplam: {}, haftalar: [], ligTablo: {} }));
+        setKurulum(kur);
+        setTablo({ toplam: {}, haftalar: [], ligTablo: {} });
+        setPortfoySecim([]);
+        setEkran("portfoyKur");
+    }
+    async function portfoyKaydet() {
+        const maliyet = portfoySecim.reduce((s, i) => s + fiyat(takimlar[i]), 0);
+        if (portfoySecim.length !== PORTFOY_ADET) {
+            setBilgi(`${PORTFOY_ADET} takım seçmelisin.`);
+            return;
+        }
+        if (maliyet > KREDI) {
+            setBilgi("Kredi yetmiyor.");
+            return;
+        }
+        const y = { ...portfoy, [ben.slug]: { isim: ben.isim, takimlar: portfoySecim, harcanan: maliyet } };
+        await depo.set(`kpn:${lig}:portfoy`, JSON.stringify(y));
+        setPortfoy(y);
+        setEkran("oyun");
+        setSekme("kupon");
+    }
+    /* ---------- hafta aç ---------- */
+    async function haftayiAc() {
+        if (yeniMac.liste.length === 0) {
+            setBilgi("En az bir maç ekle.");
+            return;
+        }
+        const hafta = ((tablo === null || tablo === void 0 ? void 0 : tablo.haftalar.length) || 0) + 1;
+        const a = { hafta, maclar: yeniMac.liste, kuran: ben.isim, acilis: Date.now() };
+        await depo.set(`kpn:${lig}:aktif`, JSON.stringify(a));
+        setAktif(a);
+        setKuponlar({});
+        setBenimKupon(null);
+        setYeniMac({ liste: [], bekleyen: null });
+    }
+    function takimTikla(i) {
+        if (yeniMac.liste.length >= 12)
+            return;
+        if (yeniMac.bekleyen === null)
+            setYeniMac({ ...yeniMac, bekleyen: i });
+        else if (yeniMac.bekleyen === i)
+            setYeniMac({ ...yeniMac, bekleyen: null });
+        else
+            setYeniMac({ liste: [...yeniMac.liste, { e: yeniMac.bekleyen, d: i }], bekleyen: null });
+    }
+    const kullanilan = new Set(yeniMac.liste.flatMap(m => [m.e, m.d]).concat(yeniMac.bekleyen !== null ? [yeniMac.bekleyen] : []));
+    const gelecekHafta = ((tablo === null || tablo === void 0 ? void 0 : tablo.haftalar.length) || 0) + 1;
+    const hazir = HAZIR_FIKSTUR[gelecekHafta];
+    const hazirCozum = useMemo(() => {
+        if (!hazir)
+            return null;
+        const bul = (kod) => takimlar.findIndex(t => t.kod === kod);
+        const liste = [];
+        for (const [e, d] of hazir.maclar) {
+            const ei = bul(e), di = bul(d);
+            if (ei < 0 || di < 0)
+                return null;
+            liste.push({ e: ei, d: di });
+        }
+        return liste;
+    }, [hazir, takimlar]);
+    /* ---------- kupon doldur ---------- */
+    const [taslak, setTaslak] = useState(null);
+    useEffect(() => {
+        if (aktif && !benimKupon)
+            setTaslak({ tahminler: aktif.maclar.map(() => [1, 1]), joker: 0 });
+        else if (benimKupon)
+            setTaslak(null);
+        setKuponOnay(false);
+    }, [aktif === null || aktif === void 0 ? void 0 : aktif.hafta, benimKupon]);
+    async function kuponVer() {
+        const k = { slug: ben.slug, isim: ben.isim, hafta: aktif.hafta, tahminler: taslak.tahminler, joker: taslak.joker, zaman: Date.now() };
+        await depo.set(`kpn:${lig}:kupon:${aktif.hafta}:${ben.slug}`, JSON.stringify(k));
+        setBenimKupon(k);
+        setKuponlar({ ...kuponlar, [ben.slug]: k });
+        setBilgi("Kuponun yatırıldı ve kilitlendi. Bol şans.");
+        setKuponOnay(false);
+    }
+    /* ---------- haftayı kapat ---------- */
+    async function haftayiKapat() {
+        if (!sonucGiris)
+            return;
+        if (sonucGiris.some(s => s[0] === null || s[1] === null)) {
+            setBilgi("Tüm sonuçları gir.");
+            return;
+        }
+        setMesgul(true);
+        await kuponlariYukle(lig, aktif.hafta, ben.slug);
+        const l = await depo.list(`kpn:${lig}:kupon:${aktif.hafta}:`);
+        const hepsi = {};
+        for (const k of ((l === null || l === void 0 ? void 0 : l.keys) || [])) {
+            const v = await depo.get(k);
+            if (v === null || v === void 0 ? void 0 : v.value) {
+                const p = JSON.parse(v.value);
+                hepsi[p.slug] = p;
+            }
+        }
+        const puanlar = {}, detay = {};
+        Object.values(hepsi).forEach(kp => {
+            let toplam = 0, dogruSonuc = 0;
+            const dt = aktif.maclar.map((_, i) => {
+                let p = macPuani(kp.tahminler[i], sonucGiris[i]);
+                if (p >= 2)
+                    dogruSonuc++;
+                if (kp.joker === i)
+                    p *= 2;
+                toplam += p;
+                return p;
+            });
+            if (dogruSonuc === aktif.maclar.length && aktif.maclar.length >= 5)
+                toplam += 5;
+            puanlar[kp.slug] = toplam;
+            detay[kp.slug] = dt;
+        });
+        const yeniTablo = JSON.parse(JSON.stringify(tablo || { toplam: {}, haftalar: [], ligTablo: {} }));
+        Object.entries(puanlar).forEach(([s, p]) => { yeniTablo.toplam[s] = (yeniTablo.toplam[s] || 0) + p; });
+        aktif.maclar.forEach((m, i) => {
+            const [eg, dg] = sonucGiris[i];
+            [m.e, m.d].forEach(t => { if (!yeniTablo.ligTablo[t])
+                yeniTablo.ligTablo[t] = bosSatir(); });
+            const E = yeniTablo.ligTablo[m.e], D = yeniTablo.ligTablo[m.d];
+            E.o++;
+            D.o++;
+            E.ag += eg;
+            E.yg += dg;
+            D.ag += dg;
+            D.yg += eg;
+            if (eg > dg) {
+                E.g++;
+                E.p += 3;
+                D.m++;
+            }
+            else if (eg === dg) {
+                E.b++;
+                D.b++;
+                E.p++;
+                D.p++;
+            }
+            else {
+                D.g++;
+                D.p += 3;
+                E.m++;
+            }
+        });
+        yeniTablo.haftalar.push({
+            no: aktif.hafta, maclar: aktif.maclar, sonuclar: sonucGiris,
+            puanlar, detay, jokerler: Object.fromEntries(Object.values(hepsi).map(k => [k.slug, k.joker])),
+            tahminler: Object.fromEntries(Object.values(hepsi).map(k => [k.slug, k.tahminler])),
+            isimler: Object.fromEntries(Object.values(hepsi).map(k => [k.slug, k.isim])),
+        });
+        await depo.set(`kpn:${lig}:tablo`, JSON.stringify(yeniTablo));
+        await depo.set(`kpn:${lig}:aktif`, JSON.stringify(null));
+        setTablo(yeniTablo);
+        setAktif(null);
+        setSonucGiris(null);
+        setBenimKupon(null);
+        setKuponlar({});
+        setAcikHafta(yeniTablo.haftalar.length - 1);
+        setSekme("klasman");
+        setMesgul(false);
+        setBilgi(`${aktif.hafta}. hafta kapandı.`);
+    }
+    /* ---------- hesaplamalar ---------- */
+    const ligSirali = useMemo(() => {
+        if (!tablo)
+            return [];
+        return Object.entries(tablo.ligTablo).map(([i, s]) => ({ i: +i, ...s, av: s.ag - s.yg }))
+            .sort((a, b) => b.p - a.p || b.av - a.av || b.ag - a.ag);
+    }, [tablo]);
+    const takimPuan = (i) => {
+        var _a, _b;
+        const r = (_a = resmi === null || resmi === void 0 ? void 0 : resmi.puanlar) === null || _a === void 0 ? void 0 : _a[i];
+        return (r !== undefined && r !== null) ? r : (((_b = tablo === null || tablo === void 0 ? void 0 : tablo.ligTablo[i]) === null || _b === void 0 ? void 0 : _b.p) || 0);
+    };
+    // Kör seçim: portföyler ancak kayıtlı herkes kilitleyince açılır, sonra açık kalır
+    const kilitleyen = ((kurulum === null || kurulum === void 0 ? void 0 : kurulum.oyuncular) || []).filter(o => portfoy[o.slug]).length;
+    const toplamOyuncu = ((kurulum === null || kurulum === void 0 ? void 0 : kurulum.oyuncular) || []).length;
+    const hepsiKilitli = toplamOyuncu >= 2 && kilitleyen === toplamOyuncu;
+    useEffect(() => {
+        if (hepsiKilitli && !portfoyAcik && lig) {
+            setPortfoyAcik(true);
+            depo.set(`kpn:${lig}:portfoyAcik`, "1").catch(() => { });
+        }
+    }, [hepsiKilitli, portfoyAcik, lig]);
+    const sahipSayisi = (i) => Object.values(portfoy).filter(p => p.takimlar.includes(+i)).length;
+    const takimKatki = (i) => {
+        const b = takimPuan(i);
+        return sahipSayisi(i) === 1 ? Math.round(b * TEK_SAHIP_CARPAN) : b;
+    };
+    const portfoyPuan = (s) => { var _a; return (((_a = portfoy[s]) === null || _a === void 0 ? void 0 : _a.takimlar) || []).reduce((t, i) => t + takimKatki(i), 0); };
+    const klasman = useMemo(() => {
+        if (!kurulum || !tablo)
+            return [];
+        return kurulum.oyuncular.map(o => {
+            const kupon = tablo.toplam[o.slug] || 0;
+            const pf = portfoyPuan(o.slug);
+            return { ...o, kupon, portfoy: pf, genel: kupon + pf };
+        }).sort((a, b) => b.genel - a.genel);
+    }, [kurulum, tablo, portfoy, resmi]);
+    const kralIsimleri = (h) => {
+        const e = Object.entries(h.puanlar || {});
+        if (!e.length)
+            return [];
+        const max = Math.max(...e.map(x => x[1]));
+        return e.filter(x => x[1] === max).map(x => { var _a; return ((_a = h.isimler) === null || _a === void 0 ? void 0 : _a[x[0]]) || x[0]; });
+    };
+    const haftaKrali = (h) => {
+        const e = Object.entries(h.puanlar);
+        if (!e.length)
+            return null;
+        const max = Math.max(...e.map(x => x[1]));
+        return e.filter(x => x[1] === max).map(x => h.isimler[x[0]] || x[0]).join(", ") + ` (${max})`;
+    };
+    /* ---------- stil ---------- */
+    const stil = `
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
+.kp{--bg:#070B12;--kat:#111826;--kat2:#16202F;--cizgi:#243149;--fg:#EDF1F7;--sol:#8A94AD;--aksan:#34D399;--aksan2:#10B981;--banko:#F5A524;--kirmizi:#F0564A;--yesil:#2FBF71;
+  background:radial-gradient(1100px 520px at 85% -12%,rgba(16,185,129,.10),transparent 60%),radial-gradient(900px 480px at -15% 28%,rgba(56,132,255,.06),transparent 55%),var(--bg);
+  color:var(--fg);font-family:Inter,system-ui,sans-serif;min-height:100vh;padding-bottom:82px;-webkit-font-smoothing:antialiased;}
+.kp *{box-sizing:border-box;}
+.kp-mono{font-family:'JetBrains Mono',ui-monospace,monospace;font-variant-numeric:tabular-nums;}
+.kp-h{font-family:'Space Grotesk',Inter,sans-serif;font-weight:700;letter-spacing:-.02em;line-height:1.05;}
+.kp-ust{position:sticky;top:0;z-index:30;background:rgba(7,11,18,.78);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border-bottom:1px solid var(--cizgi);padding:14px 16px;display:flex;justify-content:space-between;align-items:center;gap:10px;}
+.kp-ic{padding:16px;max-width:620px;margin:0 auto;}
+.kp-kat{background:linear-gradient(180deg,rgba(255,255,255,.028),rgba(255,255,255,0) 42%),var(--kat);border:1px solid var(--cizgi);border-radius:14px;padding:16px;margin-bottom:12px;box-shadow:0 8px 24px rgba(0,0,0,.28);}
+.kp-et{font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--sol);font-weight:600;margin-bottom:10px;}
+
+/* Kupon kağıdı */
+.kp-kagit{position:relative;background:linear-gradient(180deg,#FFFFFF,#F4F6FA);color:#1B2237;border-radius:8px;padding:28px 16px 18px;margin-bottom:12px;box-shadow:0 18px 44px rgba(0,0,0,.5),0 2px 0 rgba(255,255,255,.05);font-family:'JetBrains Mono',monospace;}
+.kp-kagit:before,.kp-kagit:after{content:"";position:absolute;left:0;right:0;height:9px;background:radial-gradient(circle at 5px 0,transparent 5px,#F4F6FA 5.5px);background-size:11px 9px;}
+.kp-kagit:before{top:-1px;transform:rotate(180deg);}
+.kp-kagit:after{bottom:-1px;}
+.kp-kbas{display:flex;justify-content:space-between;font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:#6C7590;border-bottom:1px dashed #C6CCD9;padding-bottom:10px;margin-bottom:6px;}
+.kp-msatir{display:grid;grid-template-columns:28px 1fr auto 1fr 30px;gap:6px;align-items:center;padding:10px 0;border-bottom:1px dotted #D3D8E2;font-size:13px;}
+.kp-msatir:last-child{border-bottom:none;}
+.kp-ev{text-align:right;font-weight:600;}
+.kp-dep{text-align:left;font-weight:600;}
+.kp-sayac{display:flex;align-items:center;gap:3px;}
+.kp-sbtn{width:24px;height:28px;border:1px solid #C6CCD9;background:#FFFFFF;color:#1B2237;border-radius:6px;font-size:14px;line-height:1;cursor:pointer;font-family:'JetBrains Mono',monospace;transition:background .12s;}
+.kp-sbtn:active{background:#DDE2EA;}
+.kp-skor{font-size:17px;font-weight:700;min-width:20px;text-align:center;}
+.kp-joker{width:28px;height:28px;border-radius:50%;border:1.5px solid #C6CCD9;background:#fff;color:#8B93A6;font-size:11px;font-weight:700;cursor:pointer;font-family:'JetBrains Mono',monospace;transition:all .15s;}
+.kp-joker.on{background:linear-gradient(135deg,#F5A524,#E8871E);border-color:#E8871E;color:#fff;box-shadow:0 3px 10px rgba(245,165,36,.45);}
+.kp-muhur{position:absolute;right:12px;top:38px;transform:rotate(-11deg);border:2.5px double var(--kirmizi);color:var(--kirmizi);font-family:'JetBrains Mono',monospace;font-weight:700;font-size:11.5px;letter-spacing:.09em;padding:6px 11px;border-radius:6px;opacity:.88;background:rgba(255,255,255,.68);}
+
+.kp-dg{background:linear-gradient(135deg,#34D399,#10B981);color:#04211A;border:none;border-radius:12px;padding:15px;font-family:'Space Grotesk',sans-serif;font-size:15px;font-weight:700;cursor:pointer;width:100%;letter-spacing:.01em;box-shadow:0 8px 20px rgba(16,185,129,.28);transition:transform .12s,box-shadow .12s,filter .12s;}
+.kp-dg:hover{filter:brightness(1.06);transform:translateY(-1px);box-shadow:0 10px 24px rgba(16,185,129,.34);}
+.kp-dg:active{transform:translateY(0);}
+.kp-dg:disabled{background:var(--cizgi);color:var(--sol);cursor:default;box-shadow:none;transform:none;}
+.kp-dg2{background:rgba(255,255,255,.03);color:var(--fg);border:1px solid var(--cizgi);border-radius:12px;padding:12px 14px;font-family:Inter,sans-serif;font-size:13px;font-weight:600;cursor:pointer;transition:border-color .12s,color .12s,background .12s;}
+.kp-dg2:hover{border-color:var(--aksan2);color:var(--aksan);background:rgba(16,185,129,.06);}
+.kp-cip{background:var(--kat2);border:1px solid var(--cizgi);color:var(--sol);border-radius:10px;padding:11px 4px;font-size:12px;font-weight:600;cursor:pointer;font-family:'JetBrains Mono',monospace;text-align:center;transition:all .12s;}
+.kp-cip.on{background:linear-gradient(135deg,#34D399,#10B981);border-color:#10B981;color:#04211A;box-shadow:0 4px 12px rgba(16,185,129,.3);}
+.kp-cip.pas{opacity:.26;cursor:default;}
+.kp-gir{background:var(--kat2);border:1px solid var(--cizgi);color:var(--fg);padding:13px;border-radius:10px;width:100%;font-size:15px;font-family:Inter,sans-serif;transition:border-color .12s;}
+.kp-gir:focus{outline:none;border-color:var(--aksan2);box-shadow:0 0 0 3px rgba(16,185,129,.18);}
+.kp-alt{position:fixed;bottom:0;left:0;right:0;background:rgba(10,15,24,.85);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border-top:1px solid var(--cizgi);display:grid;grid-template-columns:repeat(4,1fr);z-index:40;}
+.kp-alt button{background:none;border:none;color:var(--sol);padding:12px 2px 16px;font-family:'Space Grotesk',sans-serif;font-size:12.5px;font-weight:600;cursor:pointer;border-top:2px solid transparent;transition:color .12s;}
+.kp-alt button.on{color:var(--aksan);border-top-color:var(--aksan);}
+.kp :focus-visible{outline:2px solid var(--aksan);outline-offset:2px;}
+@media (prefers-reduced-motion:reduce){.kp *{transition:none!important;}}
+`;
+    if (yukleniyor)
+        return React.createElement("div", { className: "kp" },
+            React.createElement("style", null, stil),
+            React.createElement("div", { className: "kp-ic", style: { paddingTop: 60, color: "#8A94AD" } }, "Y\u00FCkleniyor\u2026"));
+    const Bilgi = () => bilgi ? (React.createElement("div", { style: { background: "#111826", borderBottom: "1px solid #243149", padding: "10px 16px", fontSize: 13, display: "flex", justifyContent: "space-between", gap: 10 } },
+        React.createElement("span", null, bilgi),
+        React.createElement("button", { onClick: () => setBilgi(""), style: { background: "none", border: "none", color: "#8A94AD", cursor: "pointer", fontSize: 17, lineHeight: 1 }, "aria-label": "Kapat" }, "\u00D7"))) : null;
+    /* ---------- GİRİŞ ---------- */
+    if (ekran === "giris") {
+        return (React.createElement("div", { className: "kp" },
+            React.createElement("style", null, stil),
+            React.createElement("div", { className: "kp-ic", style: { paddingTop: 44 } },
+                React.createElement("div", { className: "kp-h", style: { fontSize: 56, backgroundImage: "linear-gradient(120deg,#EDF1F7 30%,#34D399)", WebkitBackgroundClip: "text", backgroundClip: "text", WebkitTextFillColor: "transparent", color: "#EDF1F7" } }, "KUPON"),
+                React.createElement("div", { className: "kp-mono", style: { fontSize: 11, color: "#8A94AD", letterSpacing: ".16em", marginTop: 8 } }, "HAFTALIK TAHM\u0130N + SEZONLUK PORTF\u00D6Y"),
+                React.createElement("div", { style: { height: 1, background: "#243149", margin: "24px 0" } }),
+                React.createElement("p", { style: { color: "#8A94AD", fontSize: 14, lineHeight: 1.65, margin: 0 } },
+                    "Her hafta ma\u00E7lara skor yaz, bir ma\u00E7\u0131 banko se\u00E7. Tam skor 5, do\u011Fru fark 3, do\u011Fru sonu\u00E7 2 puan \u2014 banko ikiye katlar. Sezon ba\u015F\u0131nda ",
+                    KREDI,
+                    " krediyle 4 tak\u0131m al: onlar\u0131n lig puan\u0131 da senin puan\u0131n."),
+                React.createElement("div", { style: { marginTop: 26 } },
+                    React.createElement("div", { className: "kp-et" }, "Grup kodu"),
+                    React.createElement("input", { className: "kp-gir kp-mono", value: lig, onChange: e => setLig(e.target.value.toLowerCase().replace(/[^a-z0-9]/g, "")), placeholder: "besikodu", maxLength: 20 }),
+                    React.createElement("div", { style: { fontSize: 11.5, color: "#5F6B85", marginTop: 7 } }, "Ayn\u0131 kodu girenler ayn\u0131 ligde. Gruba bu kodu at.")),
+                React.createElement("div", { style: { marginTop: 18 } },
+                    React.createElement("div", { className: "kp-et" }, "Ad\u0131n"),
+                    React.createElement("input", { className: "kp-gir", value: isim, onChange: e => setIsim(e.target.value), placeholder: "Meto", maxLength: 16 }),
+                    React.createElement("div", { style: { display: "flex", gap: 6, marginTop: 8, flexWrap: "wrap" } }, TAKMA_ADLAR.map(n => (React.createElement("button", { key: n, className: "kp-dg2", style: { padding: "6px 12px 6px 6px", fontSize: 12.5, display: "flex", alignItems: "center", gap: 8, borderColor: isim === n ? "#10B981" : "#243149", color: isim === n ? "#34D399" : "#EDF1F7" }, onClick: () => setIsim(n) },
+                        React.createElement(Yuz, { isim: n, boy: 26, vurgu: isim === n }),
+                        n))))),
+                React.createElement("div", { style: { marginTop: 24 } },
+                    React.createElement("button", { className: "kp-dg", disabled: !lig.trim() || !isim.trim() || mesgul, onClick: () => ligeGir(lig, isim, false) }, mesgul ? "…" : "Lige gir")),
+                React.createElement("p", { style: { fontSize: 11, color: "#5F6B85", marginTop: 20, lineHeight: 1.6 } }, "Kuponun ve portf\u00F6y\u00FCn ayn\u0131 grup kodunu kullanan herkese g\u00F6r\u00FCn\u00FCr. Hafta kapanmadan ba\u015Fkalar\u0131n\u0131n tahminleri gizli tutulur."))));
+    }
+    /* ---------- TAKIM LİSTESİ (ilk kurulum) ---------- */
+    if (ekran === "takimlar") {
+        return (React.createElement("div", { className: "kp" },
+            React.createElement("style", null, stil),
+            React.createElement("div", { className: "kp-ust" },
+                React.createElement("div", { className: "kp-h", style: { fontSize: 19 } }, "Lig kadrosu"),
+                React.createElement("div", { className: "kp-mono", style: { fontSize: 11, color: "#8A94AD" } },
+                    takimDuzen.length,
+                    " tak\u0131m")),
+            React.createElement(Bilgi, null),
+            React.createElement("div", { className: "kp-ic" },
+                React.createElement("p", { style: { color: "#8A94AD", fontSize: 13.5, lineHeight: 1.6, marginTop: 0 } }, "Liste 2026-27 S\u00FCper Lig'i. Sa\u011Fdaki say\u0131 tak\u0131m\u0131n ge\u00E7en sezon toplad\u0131\u011F\u0131 ger\u00E7ek puan \u2014 portf\u00F6y fiyat\u0131 buradan hesaplan\u0131yor. Erzurumspor, Amedspor ve \u00C7orum yeni \u00E7\u0131kt\u0131\u011F\u0131 i\u00E7in onlar\u0131nki tahmin (35/34/33)."),
+                takimDuzen.map((t, i) => (React.createElement("div", { key: i, style: { display: "grid", gridTemplateColumns: "1fr 62px 54px", gap: 6, marginBottom: 6 } },
+                    React.createElement("input", { className: "kp-gir", style: { padding: 9, fontSize: 13.5 }, value: t.ad, onChange: e => { const y = [...takimDuzen]; y[i] = { ...t, ad: e.target.value }; setTakimDuzen(y); } }),
+                    React.createElement("input", { className: "kp-gir kp-mono", style: { padding: 9, fontSize: 13, textAlign: "center" }, value: t.kod, maxLength: 4, onChange: e => { const y = [...takimDuzen]; y[i] = { ...t, kod: e.target.value.toUpperCase() }; setTakimDuzen(y); } }),
+                    React.createElement("input", { className: "kp-gir kp-mono", style: { padding: 9, fontSize: 13, textAlign: "center" }, value: t.gp, onChange: e => { const y = [...takimDuzen]; y[i] = { ...t, gp: Math.max(0, Math.min(102, +e.target.value || 0)) }; setTakimDuzen(y); } })))),
+                React.createElement("button", { className: "kp-dg2", style: { width: "100%", marginTop: 8 }, onClick: () => setTakimDuzen([...takimDuzen, { ad: "", kod: "", guc: 65 }]) }, "Tak\u0131m ekle"),
+                React.createElement("div", { style: { marginTop: 16 } },
+                    React.createElement("button", { className: "kp-dg", onClick: kurulumBitir }, "Ligi kur")))));
+    }
+    /* ---------- PORTFÖY KURULUMU ---------- */
+    if (ekran === "portfoyKur") {
+        const harcanan = portfoySecim.reduce((s, i) => s + fiyat(takimlar[i]), 0);
+        const buyukSecili = portfoySecim.find(x => { var _a; return BUYUK4.includes((_a = takimlar[x]) === null || _a === void 0 ? void 0 : _a.kod); });
+        // Bu takımı alırsam portföyü 4'e tamamlamak hâlâ mümkün mü?
+        const uygunMu = (i) => {
+            const f = fiyat(takimlar[i]);
+            const kalanButce = KREDI - harcanan - f;
+            if (kalanButce < 0)
+                return false;
+            const kalanSlot = PORTFOY_ADET - portfoySecim.length - 1;
+            if (kalanSlot === 0)
+                return true;
+            const buyukVar = buyukSecili !== undefined || BUYUK4.includes(takimlar[i].kod);
+            const enUcuz = takimlar
+                .map((t, j) => ({ j, f: fiyat(t), b: BUYUK4.includes(t.kod) }))
+                .filter(x => x.j !== i && !portfoySecim.includes(x.j) && !(buyukVar && x.b))
+                .sort((a, b) => a.f - b.f)
+                .slice(0, kalanSlot);
+            if (enUcuz.length < kalanSlot)
+                return false;
+            return enUcuz.reduce((s, x) => s + x.f, 0) <= kalanButce;
+        };
+        const cikmaz = portfoySecim.length > 0 && portfoySecim.length < PORTFOY_ADET &&
+            !takimlar.some((_, i) => !portfoySecim.includes(i) && uygunMu(i) &&
+                !(BUYUK4.includes(takimlar[i].kod) && buyukSecili !== undefined));
+        return (React.createElement("div", { className: "kp" },
+            React.createElement("style", null, stil),
+            React.createElement("div", { className: "kp-ust" },
+                React.createElement("div", null,
+                    React.createElement("div", { className: "kp-h", style: { fontSize: 19 } }, "Portf\u00F6y\u00FCn\u00FC kur"),
+                    React.createElement("div", { className: "kp-mono", style: { fontSize: 11, color: "#8A94AD", marginTop: 3 } },
+                        portfoySecim.length,
+                        "/",
+                        PORTFOY_ADET,
+                        " tak\u0131m")),
+                React.createElement("div", { style: { textAlign: "right" } },
+                    React.createElement("div", { className: "kp-mono", style: { fontSize: 20, fontWeight: 700, color: harcanan > KREDI ? "#F0564A" : "#34D399" } }, KREDI - harcanan),
+                    React.createElement("div", { className: "kp-et", style: { marginBottom: 0, fontSize: 9 } }, "KRED\u0130"))),
+            React.createElement(Bilgi, null),
+            React.createElement("div", { className: "kp-ic" },
+                React.createElement("p", { style: { color: "#8A94AD", fontSize: 13.5, lineHeight: 1.65, marginTop: 0 } }, "Bu tak\u0131mlar\u0131n ligde toplad\u0131\u011F\u0131 her puan sana yaz\u0131l\u0131r. Sezon ba\u015F\u0131nda bir kere se\u00E7iliyor, sonra de\u011Fi\u015Fmiyor."),
+                React.createElement("div", { className: "kp-kat", style: { padding: "12px 14px" } },
+                    React.createElement("div", { className: "kp-et", style: { marginBottom: 8 } }, "Kurallar"),
+                    React.createElement("div", { style: { fontSize: 13, lineHeight: 1.7, color: "#8A94AD" } },
+                        React.createElement("strong", { style: { color: "#EDF1F7" } },
+                            KREDI,
+                            " kredi, ",
+                            PORTFOY_ADET,
+                            " tak\u0131m."),
+                        " Galatasaray, Fenerbah\u00E7e, Be\u015Fikta\u015F ve Trabzonspor'dan ",
+                        React.createElement("strong", { style: { color: "#F5A524" } }, "en fazla birini"),
+                        " alabilirsin. Bir tak\u0131m\u0131 grupta yaln\u0131z sen ald\u0131ysan puan\u0131 ",
+                        React.createElement("strong", { style: { color: "#34D399" } },
+                            "\u00D7",
+                            TEK_SAHIP_CARPAN),
+                        " say\u0131l\u0131r.",
+                        React.createElement("div", { style: { marginTop: 10, paddingTop: 10, borderTop: "1px solid #243149", fontSize: 12.5 } },
+                            "Fiyatlar ge\u00E7en sezonun ger\u00E7ek puanlar\u0131ndan t\u00FCretildi. B\u00FCt\u00E7eyi tam harcayan her portf\u00F6y\u00FCn beklentisi e\u015Fit \u2014 kazanmak i\u00E7in bir tak\u0131m\u0131n ge\u00E7en seneki puan\u0131n\u0131 a\u015Faca\u011F\u0131na ya da alt\u0131nda kalaca\u011F\u0131na do\u011Fru bahse girmen gerekiyor.",
+                            React.createElement("div", { style: { marginTop: 8, color: "#F5A524" } }, "Se\u00E7im k\u00F6r: kimse kimsenin portf\u00F6y\u00FCn\u00FC g\u00F6rm\u00FCyor, hepsi herkes kilitleyince a\u00E7\u0131l\u0131yor. Ayn\u0131 tak\u0131m\u0131 ba\u015Fkas\u0131 da alm\u0131\u015F olabilir.")))),
+                cikmaz && (React.createElement("div", { className: "kp-kat", style: { borderColor: "#F0564A", background: "rgba(240,86,74,.08)" } },
+                    React.createElement("div", { className: "kp-et", style: { color: "#F0564A", marginBottom: 8 } }, "B\u00FCt\u00E7e t\u0131kand\u0131"),
+                    React.createElement("div", { style: { fontSize: 13, lineHeight: 1.65, marginBottom: 12 } },
+                        "Kalan ",
+                        KREDI - harcanan,
+                        " krediyle portf\u00F6y\u00FC ",
+                        PORTFOY_ADET,
+                        " tak\u0131ma tamamlayamazs\u0131n. Se\u00E7ti\u011Fin pahal\u0131 tak\u0131mlardan birini \u00E7\u0131kar."),
+                    React.createElement("button", { className: "kp-dg2", style: { width: "100%" }, onClick: () => setPortfoySecim([]) }, "Ba\u015Ftan ba\u015Fla"))),
+                takimlar.map((t, i) => {
+                    const secili = portfoySecim.includes(i);
+                    const f = fiyat(t);
+                    const buyuk = BUYUK4.includes(t.kod);
+                    const buyukKilit = buyuk && buyukSecili !== undefined && buyukSecili !== i;
+                    const alinamaz = !secili && (portfoySecim.length >= PORTFOY_ADET || buyukKilit || !uygunMu(i));
+                    return (React.createElement("div", { key: i, onClick: () => { if (secili)
+                            setPortfoySecim(portfoySecim.filter(x => x !== i));
+                        else if (!alinamaz)
+                            setPortfoySecim([...portfoySecim, i]); }, role: "button", tabIndex: 0, onKeyDown: e => e.key === "Enter" && (secili ? setPortfoySecim(portfoySecim.filter(x => x !== i)) : !alinamaz && setPortfoySecim([...portfoySecim, i])), style: { display: "grid", gridTemplateColumns: "44px 1fr auto", gap: 10, alignItems: "center", padding: "13px 14px", marginBottom: 7, borderRadius: 12, cursor: alinamaz ? "default" : "pointer", opacity: alinamaz ? .32 : 1, background: secili ? "rgba(16,185,129,.16)" : "#111826", border: `1px solid ${secili ? "#10B981" : "#243149"}`, transition: "border-color .12s, background .12s" } },
+                        React.createElement("div", { className: "kp-mono", style: { fontWeight: 700, fontSize: 13, color: secili ? "#34D399" : "#8A94AD" } }, t.kod),
+                        React.createElement("div", null,
+                            React.createElement("div", { style: { fontSize: 14.5, fontWeight: 500 } },
+                                t.ad,
+                                buyuk && React.createElement("span", { className: "kp-mono", style: { fontSize: 9, fontWeight: 700, color: "#F5A524", border: "1px solid rgba(245,165,36,.5)", borderRadius: 4, padding: "2px 5px", marginLeft: 8, verticalAlign: "middle", letterSpacing: ".06em" } }, "B\u00DCY\u00DCK 4")),
+                            React.createElement("div", { className: "kp-mono", style: { fontSize: 10.5, color: "#5F6B85", marginTop: 3 } }, t.yeni ? `yeni çıktı · tahmin ${t.gp}` : `geçen sezon ${t.gp} puan`)),
+                        React.createElement("div", { className: "kp-mono", style: { fontSize: 15, fontWeight: 700 } }, f)));
+                }),
+                React.createElement("div", { style: { marginTop: 16 } },
+                    React.createElement("button", { className: "kp-dg", disabled: portfoySecim.length !== PORTFOY_ADET || harcanan > KREDI, onClick: portfoyKaydet }, portfoySecim.length === PORTFOY_ADET ? "Portföyü kilitle" : `${PORTFOY_ADET - portfoySecim.length} takım daha seç`),
+                    portfoySecim.length > 0 && (React.createElement("button", { className: "kp-dg2", style: { width: "100%", marginTop: 8 }, onClick: () => setPortfoySecim([]) }, "Se\u00E7imi temizle"))))));
+    }
+    /* ---------- OYUN ---------- */
+    const oyuncular = (kurulum === null || kurulum === void 0 ? void 0 : kurulum.oyuncular) || [];
+    const veren = Object.keys(kuponlar).length;
+    return (React.createElement("div", { className: "kp" },
+        React.createElement("style", null, stil),
+        React.createElement("div", { className: "kp-ust" },
+            React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 10 } },
+                React.createElement(Yuz, { isim: ben === null || ben === void 0 ? void 0 : ben.isim, boy: 38, vurgu: true }),
+                React.createElement("div", null,
+                    React.createElement("div", { className: "kp-h", style: { fontSize: 18 } }, ben === null || ben === void 0 ? void 0 : ben.isim),
+                    React.createElement("div", { className: "kp-mono", style: { fontSize: 10.5, color: "#8A94AD", marginTop: 4 } },
+                        lig.toUpperCase(),
+                        " \u00B7 ",
+                        (tablo === null || tablo === void 0 ? void 0 : tablo.haftalar.length) || 0,
+                        " HAFTA OYNANDI"))),
+            React.createElement("div", { style: { textAlign: "right" } },
+                React.createElement("div", { className: "kp-mono", style: { fontSize: 20, fontWeight: 700, color: "#34D399" } }, ((tablo === null || tablo === void 0 ? void 0 : tablo.toplam[ben.slug]) || 0) + portfoyPuan(ben.slug)),
+                React.createElement("div", { className: "kp-et", style: { marginBottom: 0, fontSize: 9 } }, "PUAN"))),
+        React.createElement(Bilgi, null),
+        React.createElement("div", { className: "kp-ic" },
+            sekme === "kupon" && (React.createElement(React.Fragment, null, !aktif ? (React.createElement(React.Fragment, null,
+                React.createElement("div", { className: "kp-kat" },
+                    React.createElement("div", { className: "kp-et" }, "Yeni hafta"),
+                    hazirCozum && yeniMac.liste.length === 0 && (React.createElement("div", { style: { background: "rgba(16,185,129,.14)", border: "1px solid #10B981", borderRadius: 5, padding: 12, marginBottom: 14 } },
+                        React.createElement("div", { style: { fontSize: 13.5, lineHeight: 1.6, marginBottom: 10 } },
+                            gelecekHafta,
+                            ". haftan\u0131n resmi fikst\u00FCr\u00FC haz\u0131r \u2014 ",
+                            hazir.tarih,
+                            ", 9 ma\u00E7."),
+                        React.createElement("button", { className: "kp-dg", onClick: () => setYeniMac({ liste: hazirCozum, bekleyen: null }) }, "Fikst\u00FCr\u00FC y\u00FCkle"))),
+                    React.createElement("p", { style: { fontSize: 13.5, color: "#8A94AD", lineHeight: 1.6, margin: "0 0 14px" } },
+                        hazirCozum && yeniMac.liste.length === 0 ? "Ya da maçları kendin ekle: " : "Maçları ekle: ",
+                        "\u00F6nce ev sahibine, sonra deplasman tak\u0131m\u0131na dokun."),
+                    React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 5 } }, takimlar.map((t, i) => (React.createElement("button", { key: i, className: `kp-cip ${yeniMac.bekleyen === i ? "on" : ""} ${kullanilan.has(i) && yeniMac.bekleyen !== i ? "pas" : ""}`, disabled: kullanilan.has(i) && yeniMac.bekleyen !== i, onClick: () => takimTikla(i) }, t.kod)))),
+                    yeniMac.bekleyen !== null && (React.createElement("div", { className: "kp-mono", style: { fontSize: 12, color: "#34D399", marginTop: 12 } },
+                        T(yeniMac.bekleyen).kod,
+                        " \u2014 \u015Fimdi rakibine dokun"))),
+                yeniMac.liste.length > 0 && (React.createElement("div", { className: "kp-kat" },
+                    React.createElement("div", { className: "kp-et" },
+                        "Hafta ",
+                        ((tablo === null || tablo === void 0 ? void 0 : tablo.haftalar.length) || 0) + 1,
+                        " fikst\u00FCr\u00FC"),
+                    yeniMac.liste.map((m, i) => (React.createElement("div", { key: i, className: "kp-mono", style: { display: "grid", gridTemplateColumns: "1fr 22px 1fr 26px", gap: 6, alignItems: "center", padding: "8px 0", borderBottom: "1px solid #1D2941", fontSize: 13 } },
+                        React.createElement("div", { style: { textAlign: "right" } }, T(m.e).ad),
+                        React.createElement("div", { style: { textAlign: "center", color: "#5F6B85" } }, "\u2013"),
+                        React.createElement("div", null, T(m.d).ad),
+                        React.createElement("button", { onClick: () => setYeniMac({ ...yeniMac, liste: yeniMac.liste.filter((_, x) => x !== i) }), style: { background: "none", border: "none", color: "#8A94AD", cursor: "pointer", fontSize: 15 }, "aria-label": "Ma\u00E7\u0131 \u00E7\u0131kar" }, "\u00D7")))),
+                    React.createElement("button", { className: "kp-dg", style: { marginTop: 14 }, onClick: haftayiAc }, "Haftay\u0131 a\u00E7"))))) : sonucGiris ? (React.createElement(React.Fragment, null,
+                React.createElement("div", { className: "kp-kat" },
+                    React.createElement("div", { className: "kp-et" },
+                        "Ger\u00E7ek sonu\u00E7lar \u2014 ",
+                        aktif.hafta,
+                        ". hafta"),
+                    aktif.maclar.map((m, i) => (React.createElement("div", { key: i, className: "kp-mono", style: { display: "grid", gridTemplateColumns: "1fr auto 1fr", gap: 8, alignItems: "center", padding: "10px 0", borderBottom: "1px solid #1D2941" } },
+                        React.createElement("div", { style: { textAlign: "right", fontSize: 13 } }, T(m.e).ad),
+                        React.createElement("div", { style: { display: "flex", gap: 5, alignItems: "center" } }, [0, 1].map(j => {
+                            var _a;
+                            return (React.createElement("input", { key: j, inputMode: "numeric", className: "kp-gir kp-mono", style: { width: 42, padding: "7px 0", textAlign: "center", fontSize: 15 }, value: (_a = sonucGiris[i][j]) !== null && _a !== void 0 ? _a : "", onChange: e => {
+                                    const v = e.target.value.replace(/\D/g, "").slice(0, 2);
+                                    const y = sonucGiris.map(x => [...x]);
+                                    y[i][j] = v === "" ? null : +v;
+                                    setSonucGiris(y);
+                                } }));
+                        })),
+                        React.createElement("div", { style: { fontSize: 13 } }, T(m.d).ad)))),
+                    React.createElement("button", { className: "kp-dg", style: { marginTop: 14 }, disabled: mesgul, onClick: haftayiKapat }, mesgul ? "Hesaplanıyor…" : "Haftayı kapat ve puanla"),
+                    React.createElement("button", { className: "kp-dg2", style: { width: "100%", marginTop: 8 }, onClick: () => setSonucGiris(null) }, "Vazge\u00E7"),
+                    React.createElement("div", { style: { fontSize: 11.5, color: "#5F6B85", marginTop: 12, lineHeight: 1.6 } },
+                        "Kapat\u0131nca ",
+                        veren,
+                        " kupon puanlan\u0131r. Kuponunu vermeyen o hafta 0 al\u0131r.")))) : (React.createElement(React.Fragment, null,
+                React.createElement("div", { className: "kp-kagit" },
+                    benimKupon && React.createElement("div", { className: "kp-muhur" }, "KUPON YATIRILDI"),
+                    React.createElement("div", { className: "kp-kbas", style: { alignItems: "center" } },
+                        React.createElement("span", null,
+                            "KUPON \u00B7 HAFTA ",
+                            aktif.hafta),
+                        React.createElement("span", { style: { display: "flex", alignItems: "center", gap: 7 } },
+                            ben.isim.toUpperCase(),
+                            React.createElement("img", { src: avatarBul(ben.isim) || "", alt: "", style: { width: 26, height: 26, borderRadius: "50%", objectFit: "cover", border: "1px solid #C6CCD9", display: avatarBul(ben.isim) ? "block" : "none" } }))),
+                    React.createElement("div", { style: { fontSize: 9.5, color: "#6C7590", letterSpacing: ".1em", paddingBottom: 8, borderBottom: "1px dashed #C6CCD9", marginBottom: 4 } }, "B = BANKO \u00B7 BU MA\u00C7IN PUANI \u0130K\u0130YE KATLANIR"),
+                    aktif.maclar.map((m, i) => {
+                        const t = (benimKupon || taslak);
+                        if (!t)
+                            return null;
+                        const kilitli = !!benimKupon;
+                        const ayar = (j, delta) => {
+                            const y = { ...taslak, tahminler: taslak.tahminler.map(x => [...x]) };
+                            y.tahminler[i][j] = Math.max(0, Math.min(9, y.tahminler[i][j] + delta));
+                            setTaslak(y);
+                        };
+                        return (React.createElement("div", { key: i, className: "kp-msatir" },
+                            React.createElement("button", { className: `kp-joker ${t.joker === i ? "on" : ""}`, disabled: kilitli, onClick: () => setTaslak({ ...taslak, joker: i }), "aria-label": "Banko se\u00E7" }, "B"),
+                            React.createElement("div", { className: "kp-ev" }, T(m.e).kod),
+                            React.createElement("div", { className: "kp-sayac" },
+                                !kilitli && React.createElement("button", { className: "kp-sbtn", onClick: () => ayar(0, -1), "aria-label": "Azalt" }, "\u2212"),
+                                React.createElement("span", { className: "kp-skor" }, t.tahminler[i][0]),
+                                !kilitli && React.createElement("button", { className: "kp-sbtn", onClick: () => ayar(0, 1), "aria-label": "Art\u0131r" }, "+"),
+                                React.createElement("span", { style: { margin: "0 2px", color: "#8B93A6" } }, ":"),
+                                !kilitli && React.createElement("button", { className: "kp-sbtn", onClick: () => ayar(1, -1), "aria-label": "Azalt" }, "\u2212"),
+                                React.createElement("span", { className: "kp-skor" }, t.tahminler[i][1]),
+                                !kilitli && React.createElement("button", { className: "kp-sbtn", onClick: () => ayar(1, 1), "aria-label": "Art\u0131r" }, "+")),
+                            React.createElement("div", { className: "kp-dep" }, T(m.d).kod),
+                            React.createElement("div", null)));
+                    }),
+                    React.createElement("div", { style: { borderTop: "1px dashed #C6CCD9", marginTop: 10, paddingTop: 9, fontSize: 10, color: "#6C7590", letterSpacing: ".08em", display: "flex", justifyContent: "space-between" } },
+                        React.createElement("span", null, "TAM SKOR 5 \u00B7 FARK 3 \u00B7 SONU\u00C7 2"),
+                        React.createElement("span", null,
+                            veren,
+                            "/",
+                            oyuncular.length,
+                            " KUPON"))),
+                benimKupon ? (React.createElement("div", { className: "kp-kat", style: { textAlign: "center", padding: "14px 16px" } },
+                    React.createElement("div", { style: { fontSize: 13.5, color: "#8A94AD", lineHeight: 1.6 } }, "Kuponun kilitli. Hafta kapan\u0131nca herkesin kuponu birlikte a\u00E7\u0131lacak."))) : kuponOnay ? (React.createElement("div", { className: "kp-kat", style: { borderColor: "#F5A524" } },
+                    React.createElement("div", { className: "kp-et", style: { color: "#F5A524" } }, "Emin misin?"),
+                    React.createElement("div", { style: { fontSize: 13.5, lineHeight: 1.7, marginBottom: 14 } },
+                        "Kupon yat\u0131r\u0131ld\u0131ktan sonra ",
+                        React.createElement("strong", null, "de\u011Fi\u015Ftirilemez"),
+                        ". Bankon:",
+                        " ",
+                        React.createElement("strong", { className: "kp-mono", style: { color: "#F5A524" } },
+                            T(aktif.maclar[taslak.joker].e).kod,
+                            " \u2013 ",
+                            T(aktif.maclar[taslak.joker].d).kod)),
+                    React.createElement("button", { className: "kp-dg", onClick: kuponVer }, "Evet, kuponu yat\u0131r"),
+                    React.createElement("button", { className: "kp-dg2", style: { width: "100%", marginTop: 8 }, onClick: () => setKuponOnay(false) }, "D\u00F6n, bir daha bakay\u0131m"))) : (React.createElement("button", { className: "kp-dg", onClick: () => setKuponOnay(true), disabled: !taslak }, "Kuponu yat\u0131r")),
+                React.createElement("div", { className: "kp-kat", style: { marginTop: 12 } },
+                    React.createElement("div", { className: "kp-et" }, "Kim yat\u0131rd\u0131"),
+                    oyuncular.map(o => (React.createElement("div", { key: o.slug, style: { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", fontSize: 13.5, borderBottom: "1px solid #1D2941" } },
+                        React.createElement("span", { style: { display: "flex", alignItems: "center", gap: 10, color: o.slug === ben.slug ? "#34D399" : "#EDF1F7", opacity: kuponlar[o.slug] ? 1 : .55 } },
+                            React.createElement(Yuz, { isim: o.isim, boy: 30, vurgu: !!kuponlar[o.slug] }),
+                            o.isim),
+                        React.createElement("span", { className: "kp-mono", style: { fontSize: 12, color: kuponlar[o.slug] ? "#2FBF71" : "#5F6B85" } }, kuponlar[o.slug] ? "yatırdı" : "bekleniyor")))),
+                    React.createElement("button", { className: "kp-dg2", style: { width: "100%", marginTop: 12 }, onClick: () => kuponlariYukle(lig, aktif.hafta, ben.slug) }, "Yenile")),
+                React.createElement("div", { className: "kp-kat" },
+                    React.createElement("div", { className: "kp-et" }, "Hafta bitti mi?"),
+                    React.createElement("p", { style: { fontSize: 13, color: "#8A94AD", lineHeight: 1.6, margin: "0 0 12px" } }, "Ma\u00E7lar oynand\u0131ysa sonu\u00E7lar\u0131 gir, herkesin kuponu otomatik puanlan\u0131r. Bunu i\u00E7inizden biri yapmas\u0131 yeterli."),
+                    React.createElement("button", { className: "kp-dg2", style: { width: "100%" }, onClick: () => setSonucGiris(aktif.maclar.map(() => [null, null])) }, "Sonu\u00E7lar\u0131 gir")))))),
+            sekme === "klasman" && (React.createElement(React.Fragment, null,
+                React.createElement("div", { className: "kp-kat", style: { padding: "12px 10px" } },
+                    React.createElement("div", { className: "kp-et", style: { padding: "0 4px" } }, "Genel klasman"),
+                    React.createElement("div", { className: "kp-mono", style: { display: "grid", gridTemplateColumns: "20px 1fr 46px 46px 44px", gap: 6, fontSize: 9.5, color: "#5F6B85", padding: "0 4px 8px", borderBottom: "1px solid #243149", letterSpacing: ".08em" } },
+                        React.createElement("div", null, "#"),
+                        React.createElement("div", null, "OYUNCU"),
+                        React.createElement("div", { style: { textAlign: "right" } }, "KUPON"),
+                        React.createElement("div", { style: { textAlign: "right" } }, "PORTF\u00D6Y"),
+                        React.createElement("div", { style: { textAlign: "right" } }, "TOPLAM")),
+                    klasman.map((k, i) => (React.createElement("div", { key: k.slug, className: "kp-mono", style: { display: "grid", gridTemplateColumns: "20px 1fr 46px 46px 44px", gap: 6, alignItems: "center", padding: "10px 4px", borderBottom: i < klasman.length - 1 ? "1px solid #1D2941" : "none", background: k.slug === ben.slug ? "rgba(16,185,129,.14)" : "transparent" } },
+                        React.createElement("div", { style: { color: i === 0 ? "#34D399" : "#5F6B85", fontWeight: 700, fontSize: 13 } }, i + 1),
+                        React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 9, minWidth: 0 } },
+                            React.createElement(Yuz, { isim: k.isim, boy: 30, vurgu: i === 0 }),
+                            React.createElement("span", { style: { fontFamily: "Inter,sans-serif", fontSize: 14, fontWeight: 600, color: k.slug === ben.slug ? "#34D399" : "#EDF1F7", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, k.isim)),
+                        React.createElement("div", { style: { textAlign: "right", fontSize: 13, color: "#8A94AD" } }, k.kupon),
+                        React.createElement("div", { style: { textAlign: "right", fontSize: 13, color: "#8A94AD" } }, (portfoyAcik || k.slug === ben.slug) ? k.portfoy : "–"),
+                        React.createElement("div", { style: { textAlign: "right", fontSize: 16, fontWeight: 700 } }, (portfoyAcik || k.slug === ben.slug) ? k.genel : k.kupon))))),
+                React.createElement("div", { className: "kp-kat" },
+                    React.createElement("div", { className: "kp-et" }, "Hafta hafta"),
+                    (!tablo || tablo.haftalar.length === 0) ? (React.createElement("div", { style: { fontSize: 13.5, color: "#8A94AD" } }, "Hen\u00FCz kapanm\u0131\u015F hafta yok.")) : [...tablo.haftalar].reverse().map((h) => {
+                        const idx = tablo.haftalar.indexOf(h);
+                        const acik = acikHafta === idx;
+                        return (React.createElement("div", { key: h.no, style: { borderBottom: "1px solid #1D2941" } },
+                            React.createElement("div", { onClick: () => setAcikHafta(acik ? null : idx), role: "button", tabIndex: 0, onKeyDown: e => e.key === "Enter" && setAcikHafta(acik ? null : idx), style: { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 0", cursor: "pointer", gap: 10 } },
+                                React.createElement("div", null,
+                                    React.createElement("div", { style: { fontSize: 14, fontWeight: 600 } },
+                                        h.no,
+                                        ". hafta"),
+                                    React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 7, marginTop: 4 } },
+                                        kralIsimleri(h).map(kk => React.createElement(Yuz, { key: kk, isim: kk, boy: 22, vurgu: true })),
+                                        React.createElement("span", { className: "kp-mono", style: { fontSize: 11, color: "#8A94AD" } },
+                                            "haftan\u0131n kral\u0131: ",
+                                            haftaKrali(h) || "—"))),
+                                React.createElement("div", { style: { color: "#5F6B85", fontSize: 13 } }, acik ? "▾" : "▸")),
+                            acik && (React.createElement("div", { style: { paddingBottom: 14 } },
+                                h.maclar.map((m, i) => (React.createElement("div", { key: i, className: "kp-mono", style: { fontSize: 12, padding: "6px 0", borderTop: "1px dotted #243149" } },
+                                    React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 54px 1fr", gap: 6, alignItems: "center", marginBottom: 5 } },
+                                        React.createElement("div", { style: { textAlign: "right", color: "#EDF1F7" } }, T(m.e).kod),
+                                        React.createElement("div", { style: { textAlign: "center", fontWeight: 700, fontSize: 14, color: "#34D399" } },
+                                            h.sonuclar[i][0],
+                                            " : ",
+                                            h.sonuclar[i][1]),
+                                        React.createElement("div", { style: { color: "#EDF1F7" } }, T(m.d).kod)),
+                                    React.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: 5, justifyContent: "center" } }, Object.entries(h.tahminler || {}).map(([s, tah]) => {
+                                        var _a, _b, _c, _d, _e;
+                                        const p = (_c = (_b = (_a = h.detay) === null || _a === void 0 ? void 0 : _a[s]) === null || _b === void 0 ? void 0 : _b[i]) !== null && _c !== void 0 ? _c : 0;
+                                        return (React.createElement("span", { key: s, style: { fontSize: 10, padding: "3px 6px", borderRadius: 2, background: p >= 5 ? "rgba(47,191,113,.28)" : p > 0 ? "#1D2941" : "transparent", border: `1px solid ${p >= 5 ? "#2FBF71" : "#243149"}`, color: p > 0 ? "#EDF1F7" : "#5F6B85" } },
+                                            (((_d = h.isimler) === null || _d === void 0 ? void 0 : _d[s]) || s).slice(0, 4),
+                                            " ",
+                                            tah[i][0],
+                                            "-",
+                                            tah[i][1],
+                                            ((_e = h.jokerler) === null || _e === void 0 ? void 0 : _e[s]) === i ? " ★" : "",
+                                            " ",
+                                            React.createElement("b", { style: { color: p > 0 ? "#34D399" : "#5F6B85" } }, p)));
+                                    }))))),
+                                React.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: 6, marginTop: 12, paddingTop: 10, borderTop: "1px solid #243149" } }, Object.entries(h.puanlar).sort((a, b) => b[1] - a[1]).map(([s, p]) => {
+                                    var _a;
+                                    return (React.createElement("span", { key: s, className: "kp-mono", style: { fontSize: 12, padding: "5px 9px", borderRadius: 3, background: "#16202F", border: "1px solid #243149" } },
+                                        ((_a = h.isimler) === null || _a === void 0 ? void 0 : _a[s]) || s,
+                                        " ",
+                                        React.createElement("b", { style: { color: "#34D399" } }, p)));
+                                }))))));
+                    })))),
+            sekme === "portfoy" && (React.createElement(React.Fragment, null,
+                !portfoyAcik && (React.createElement("div", { className: "kp-kat", style: { borderColor: "#F5A524", background: "rgba(245,165,36,.07)" } },
+                    React.createElement("div", { className: "kp-et", style: { color: "#F5A524" } }, "K\u00F6r se\u00E7im \u00B7 portf\u00F6yler kapal\u0131"),
+                    React.createElement("div", { style: { fontSize: 13.5, lineHeight: 1.7, marginBottom: 14 } }, "Kimse birbirinin portf\u00F6y\u00FCn\u00FC g\u00F6remiyor. Kay\u0131tl\u0131 herkes portf\u00F6y\u00FCn\u00FC kilitleyince hepsi ayn\u0131 anda a\u00E7\u0131lacak."),
+                    React.createElement("div", { className: "kp-mono", style: { fontSize: 12, marginBottom: 10, color: "#8A94AD" } },
+                        kilitleyen,
+                        "/",
+                        toplamOyuncu,
+                        " kilitledi"),
+                    oyuncular.map(o => (React.createElement("div", { key: o.slug, style: { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", fontSize: 13.5, borderTop: "1px solid #1D2941" } },
+                        React.createElement("span", { style: { display: "flex", alignItems: "center", gap: 10, color: o.slug === ben.slug ? "#34D399" : "#EDF1F7", opacity: portfoy[o.slug] ? 1 : .55 } },
+                            React.createElement(Yuz, { isim: o.isim, boy: 30, vurgu: !!portfoy[o.slug] }),
+                            o.isim),
+                        React.createElement("span", { className: "kp-mono", style: { fontSize: 12, color: portfoy[o.slug] ? "#2FBF71" : "#5F6B85" } }, portfoy[o.slug] ? "kilitledi" : "bekleniyor")))),
+                    toplamOyuncu < 2 && (React.createElement("div", { style: { fontSize: 12, color: "#5F6B85", marginTop: 12, lineHeight: 1.6 } },
+                        "Gruba hen\u00FCz ba\u015Fka kimse kat\u0131lmad\u0131. Arkada\u015Flar\u0131n ",
+                        React.createElement("strong", { className: "kp-mono", style: { color: "#34D399" } }, lig),
+                        " koduyla girsin.")),
+                    React.createElement("button", { className: "kp-dg2", style: { width: "100%", marginTop: 14 }, onClick: () => veriYukle(lig, ben.slug) }, "Yenile"))),
+                oyuncular.filter(o => portfoyAcik || o.slug === ben.slug).map(o => {
+                    const p = portfoy[o.slug];
+                    if (!p)
+                        return (React.createElement("div", { key: o.slug, className: "kp-kat" },
+                            React.createElement("div", { style: { fontSize: 15, fontWeight: 600 } }, o.isim),
+                            React.createElement("div", { style: { fontSize: 13, color: "#8A94AD", marginTop: 6 } }, "Hen\u00FCz portf\u00F6y kurmad\u0131.")));
+                    return (React.createElement("div", { key: o.slug, className: "kp-kat", style: { borderColor: o.slug === ben.slug ? "#10B981" : "#243149" } },
+                        React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 } },
+                            React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 10 } },
+                                React.createElement(Yuz, { isim: o.isim, boy: 36, vurgu: o.slug === ben.slug }),
+                                React.createElement("span", { style: { fontSize: 16, fontWeight: 700, color: o.slug === ben.slug ? "#34D399" : "#EDF1F7" } }, o.isim)),
+                            React.createElement("div", { className: "kp-mono", style: { fontSize: 19, fontWeight: 700 } }, portfoyPuan(o.slug))),
+                        p.takimlar.map(i => (React.createElement("div", { key: i, className: "kp-mono", style: { display: "grid", gridTemplateColumns: "42px 1fr 34px 34px", gap: 8, alignItems: "center", padding: "8px 0", borderTop: "1px solid #1D2941", fontSize: 12.5 } },
+                            React.createElement("div", { style: { color: "#8A94AD", fontWeight: 600 } }, T(i).kod),
+                            React.createElement("div", { style: { fontFamily: "Inter,sans-serif", fontSize: 13.5 } },
+                                T(i).ad,
+                                sahipSayisi(i) === 1 && React.createElement("span", { style: { color: "#34D399", fontSize: 10, marginLeft: 6, fontWeight: 700 } },
+                                    "x",
+                                    TEK_SAHIP_CARPAN)),
+                            React.createElement("div", { style: { textAlign: "right", color: "#5F6B85" } },
+                                fiyat(T(i)),
+                                "k"),
+                            React.createElement("div", { style: { textAlign: "right", fontWeight: 700, color: "#34D399" } }, takimKatki(i))))),
+                        React.createElement("div", { className: "kp-mono", style: { fontSize: 10.5, color: "#5F6B85", marginTop: 9 } },
+                            p.harcanan,
+                            "/",
+                            KREDI,
+                            " kredi harcand\u0131 \u00B7 puan kayna\u011F\u0131: ",
+                            resmi ? "resmi tablo" : "kupon sonuçları")));
+                }))),
+            sekme === "lig" && (React.createElement("div", { className: "kp-kat", style: { padding: "12px 8px" } },
+                React.createElement("div", { className: "kp-et", style: { padding: "0 6px" } },
+                    "Lig tablosu \u2014 girilen kupon sonu\u00E7lar\u0131ndan",
+                    resmi ? " (portföy resmi puanları kullanıyor)" : ""),
+                ligSirali.length === 0 ? (React.createElement("div", { style: { fontSize: 13.5, color: "#8A94AD", padding: "0 6px" } }, "Hen\u00FCz sonu\u00E7 girilmedi.")) : (React.createElement(React.Fragment, null,
+                    React.createElement("div", { className: "kp-mono", style: { display: "grid", gridTemplateColumns: "20px 1fr 24px 24px 24px 24px 32px 28px", gap: 4, fontSize: 9.5, color: "#5F6B85", padding: "0 6px 8px", borderBottom: "1px solid #243149" } },
+                        React.createElement("div", null, "#"),
+                        React.createElement("div", null, "TAKIM"),
+                        React.createElement("div", { style: { textAlign: "center" } }, "O"),
+                        React.createElement("div", { style: { textAlign: "center" } }, "G"),
+                        React.createElement("div", { style: { textAlign: "center" } }, "B"),
+                        React.createElement("div", { style: { textAlign: "center" } }, "M"),
+                        React.createElement("div", { style: { textAlign: "center" } }, "AV"),
+                        React.createElement("div", { style: { textAlign: "right" } }, "P")),
+                    ligSirali.map((s, i) => {
+                        var _a;
+                        const sahip = portfoyAcik
+                            ? Object.entries(portfoy).filter(([, p]) => p.takimlar.includes(s.i)).map(([sl]) => { var _a; return ((_a = oyuncular.find(o => o.slug === sl)) === null || _a === void 0 ? void 0 : _a.isim) || sl; })
+                            : (((_a = portfoy[ben.slug]) === null || _a === void 0 ? void 0 : _a.takimlar.includes(s.i)) ? [ben.isim] : []);
+                        return (React.createElement("div", { key: s.i, className: "kp-mono", style: { display: "grid", gridTemplateColumns: "20px 1fr 24px 24px 24px 24px 32px 28px", gap: 4, alignItems: "center", padding: "9px 6px", borderBottom: "1px solid #1D2941", fontSize: 12 } },
+                            React.createElement("div", { style: { color: "#5F6B85" } }, i + 1),
+                            React.createElement("div", { style: { fontFamily: "Inter,sans-serif", fontSize: 12.5, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } },
+                                T(s.i).ad,
+                                sahip.length > 0 && React.createElement("span", { style: { color: "#34D399", fontSize: 10.5 } },
+                                    " \u00B7 ",
+                                    sahip.join(", "))),
+                            React.createElement("div", { style: { textAlign: "center", color: "#8A94AD" } }, s.o),
+                            React.createElement("div", { style: { textAlign: "center", color: "#8A94AD" } }, s.g),
+                            React.createElement("div", { style: { textAlign: "center", color: "#8A94AD" } }, s.b),
+                            React.createElement("div", { style: { textAlign: "center", color: "#8A94AD" } }, s.m),
+                            React.createElement("div", { style: { textAlign: "center", color: "#8A94AD" } },
+                                s.av > 0 ? "+" : "",
+                                s.av),
+                            React.createElement("div", { style: { textAlign: "right", fontWeight: 700 } }, s.p)));
+                    }))),
+                React.createElement("div", { style: { fontSize: 11, color: "#5F6B85", marginTop: 14, padding: "0 6px", lineHeight: 1.6 } }, "Bu tablo sadece kupona koydu\u011Funuz ma\u00E7lardan olu\u015Fuyor. Bir haftan\u0131n t\u00FCm ma\u00E7lar\u0131n\u0131 eklemezseniz eksik kal\u0131r."),
+                React.createElement("div", { style: { borderTop: "1px solid #243149", marginTop: 16, paddingTop: 16 } },
+                    React.createElement("div", { className: "kp-et", style: { padding: "0 6px" } }, "Resmi puanlar"),
+                    resmiTaslak ? (React.createElement(React.Fragment, null,
+                        React.createElement("div", { style: { fontSize: 12.5, color: "#8A94AD", padding: "0 6px 12px", lineHeight: 1.6 } }, "TFF'nin tablosuna bak\u0131p her tak\u0131m\u0131n puan\u0131n\u0131 yaz. Bo\u015F b\u0131rakt\u0131\u011F\u0131n tak\u0131m i\u00E7in kupon sonu\u00E7lar\u0131 kullan\u0131lmaya devam eder."),
+                        takimlar.map((t, i) => {
+                            var _a, _b, _c;
+                            return (React.createElement("div", { key: i, style: { display: "grid", gridTemplateColumns: "42px 1fr 62px", gap: 8, alignItems: "center", padding: "6px 6px" } },
+                                React.createElement("div", { className: "kp-mono", style: { fontSize: 12, color: "#8A94AD", fontWeight: 600 } }, t.kod),
+                                React.createElement("div", { style: { fontSize: 13.5 } }, t.ad),
+                                React.createElement("input", { inputMode: "numeric", className: "kp-gir kp-mono", style: { padding: "8px 0", textAlign: "center", fontSize: 14 }, value: (_a = resmiTaslak[i]) !== null && _a !== void 0 ? _a : "", placeholder: String((_c = (_b = tablo === null || tablo === void 0 ? void 0 : tablo.ligTablo[i]) === null || _b === void 0 ? void 0 : _b.p) !== null && _c !== void 0 ? _c : 0), onChange: e => setResmiTaslak({ ...resmiTaslak, [i]: e.target.value.replace(/\D/g, "").slice(0, 3) }) })));
+                        }),
+                        React.createElement("button", { className: "kp-dg", style: { marginTop: 14 }, onClick: resmiKaydet }, "Resmi puanlar\u0131 kaydet"),
+                        React.createElement("button", { className: "kp-dg2", style: { width: "100%", marginTop: 8 }, onClick: () => setResmiTaslak(null) }, "Vazge\u00E7"))) : resmi ? (React.createElement(React.Fragment, null,
+                        React.createElement("div", { style: { fontSize: 12.5, color: "#8A94AD", padding: "0 6px 12px", lineHeight: 1.6 } },
+                            "Portf\u00F6y puanlar\u0131 resmi tablodan hesaplan\u0131yor. Son g\u00FCncelleyen: ",
+                            React.createElement("strong", { style: { color: "#EDF1F7" } }, resmi.guncelleyen),
+                            " \u00B7 ",
+                            new Date(resmi.zaman).toLocaleDateString("tr-TR")),
+                        takimlar.map((t, i) => {
+                            var _a, _b, _c;
+                            const r = (_a = resmi.puanlar) === null || _a === void 0 ? void 0 : _a[i];
+                            if (r === undefined)
+                                return null;
+                            const k = (_c = (_b = tablo === null || tablo === void 0 ? void 0 : tablo.ligTablo[i]) === null || _b === void 0 ? void 0 : _b.p) !== null && _c !== void 0 ? _c : 0;
+                            return (React.createElement("div", { key: i, className: "kp-mono", style: { display: "grid", gridTemplateColumns: "42px 1fr 46px 46px", gap: 8, alignItems: "center", padding: "7px 6px", borderTop: "1px solid #1D2941", fontSize: 12.5 } },
+                                React.createElement("div", { style: { color: "#8A94AD", fontWeight: 600 } }, t.kod),
+                                React.createElement("div", { style: { fontFamily: "Inter,sans-serif", fontSize: 13 } }, t.ad),
+                                React.createElement("div", { style: { textAlign: "right", color: r !== k ? "#F0564A" : "#5F6B85" } }, k),
+                                React.createElement("div", { style: { textAlign: "right", fontWeight: 700, color: "#34D399" } }, r)));
+                        }),
+                        React.createElement("div", { className: "kp-mono", style: { fontSize: 10, color: "#5F6B85", padding: "10px 6px 0", display: "flex", justifyContent: "flex-end", gap: 12 } },
+                            React.createElement("span", null, "KUPONDAN"),
+                            React.createElement("span", { style: { color: "#34D399" } }, "RESM\u0130")),
+                        React.createElement("button", { className: "kp-dg2", style: { width: "100%", marginTop: 14 }, onClick: () => setResmiTaslak({ ...resmi.puanlar }) }, "Puanlar\u0131 g\u00FCncelle"),
+                        React.createElement("button", { className: "kp-dg2", style: { width: "100%", marginTop: 8 }, onClick: resmiSil }, "Resmi puanlar\u0131 sil"))) : (React.createElement(React.Fragment, null,
+                        React.createElement("div", { style: { fontSize: 12.5, color: "#8A94AD", padding: "0 6px 12px", lineHeight: 1.6 } }, "Erteleme ma\u00E7lar\u0131 ve atlanan haftalar y\u00FCz\u00FCnden yukar\u0131daki tablo ger\u00E7ek puanlardan sapabilir. Ayda bir TFF'nin tablosuna bak\u0131p 18 tak\u0131m\u0131n puan\u0131n\u0131 buraya yaz\u0131n \u2014 portf\u00F6y puanlar\u0131 o andan itibaren buradan hesaplan\u0131r. Kupon puanlar\u0131 etkilenmez."),
+                        React.createElement("button", { className: "kp-dg2", style: { width: "100%" }, onClick: () => setResmiTaslak({}) }, "Resmi puanlar\u0131 gir")))),
+                React.createElement("button", { className: "kp-dg2", style: { width: "100%", marginTop: 20 }, onClick: () => { setEkran("giris"); setBen(null); setKurulum(null); setAktif(null); setTablo(null); setResmi(null); } }, "Ba\u015Fka gruba ge\u00E7")))),
+        React.createElement("nav", { className: "kp-alt" }, [["kupon", "Kupon"], ["klasman", "Klasman"], ["portfoy", "Portföy"], ["lig", "Lig"]].map(([k, l]) => (React.createElement("button", { key: k, className: sekme === k ? "on" : "", onClick: () => setSekme(k) }, l))))));
+}
+
+window.addEventListener("error", function (e) {
+  document.getElementById("kok").innerHTML =
+    '<div class="yukleme">Bir hata oluştu:<br><br><code style="color:#F0564A">' +
+    (e.message || "bilinmeyen") + "</code></div>";
+});
+ReactDOM.createRoot(document.getElementById("kok")).render(React.createElement(Kupon));
+</script>
+</body>
+</html>
