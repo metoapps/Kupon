@@ -28,7 +28,6 @@ const { useState, useEffect, useMemo } = React;
 const SB_URL = "https://ovryjrniokyxiwesfsqw.supabase.co";
 const SB_KEY = "sb_publishable_Az3DBJigt3wDr_2hFktmoQ_SHULfUxi";
 const SB_BASLIK = { apikey: SB_KEY, Authorization: "Bearer " + SB_KEY, "Content-Type": "application/json" };
-/* Ortak veri Supabase'de, kimlik bilgisi cihazda */
 const depo = {
     async get(k, s = true) {
         if (!s) {
@@ -148,6 +147,20 @@ const AVATARLAR = {
     josh: "data:image/jpeg;base64,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",
 };
 const slug = (s) => s.toLowerCase().replace(/ç/g, "c").replace(/ğ/g, "g").replace(/ı/g, "i").replace(/ö/g, "o").replace(/ş/g, "s").replace(/ü/g, "u").replace(/[^a-z0-9]/g, "").slice(0, 20);
+/* PIN karması — tuzu lig ve kişi adından geliyor */
+async function pinKarma(lig, kisi, pin) {
+    const metin = "kupon|" + lig + "|" + kisi + "|" + pin;
+    try {
+        const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(metin));
+        return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, "0")).join("");
+    }
+    catch (e) {
+        let h = 5381;
+        for (let i = 0; i < metin.length; i++)
+            h = ((h << 5) + h + metin.charCodeAt(i)) >>> 0;
+        return "y" + h.toString(16);
+    }
+}
 const avatarBul = (isim) => AVATARLAR[slug(isim || "")] || null;
 function Yuz({ isim, boy = 32, vurgu = false }) {
     const src = avatarBul(isim);
@@ -198,6 +211,10 @@ function Kupon() {
     const [resmiTaslak, setResmiTaslak] = useState(null);
     const [kuponOnay, setKuponOnay] = useState(false);
     const [portfoyAcik, setPortfoyAcik] = useState(false);
+    const [pinEkrani, setPinEkrani] = useState(null);
+    const [pin, setPin] = useState("");
+    const [pin2, setPin2] = useState("");
+    const [pinHata, setPinHata] = useState("");
     const [acikHafta, setAcikHafta] = useState(null);
     const takimlar = (kurulum === null || kurulum === void 0 ? void 0 : kurulum.takimlar) || VARSAYILAN_TAKIMLAR;
     const T = (i) => takimlar[i] || { ad: "?", kod: "?", guc: 60 };
@@ -210,7 +227,7 @@ function Kupon() {
                     const p = JSON.parse(k.value);
                     setLig(p.lig);
                     setIsim(p.isim);
-                    await ligeGir(p.lig, p.isim, true);
+                    await girisDene(p.lig, p.isim, true);
                 }
             }
             catch (e) { }
@@ -272,6 +289,69 @@ function Kupon() {
                 setBenimKupon(null);
         }
         catch (e) { }
+    }
+    /* Kimlik denetimi: PIN yoksa kurdurur, varsa cihaz doğrulanmamışsa sorar */
+    async function girisDene(lg, ad, otomatik) {
+        if (!lg.trim() || !ad.trim())
+            return;
+        setMesgul(true);
+        setPinHata("");
+        setPin("");
+        setPin2("");
+        const s = slug(ad);
+        try {
+            const kayit = await depo.get(`kpn:${lg}:kimlik:${s}`);
+            const sunucu = (kayit === null || kayit === void 0 ? void 0 : kayit.value) ? JSON.parse(kayit.value).karma : null;
+            const cihaz = localStorage.getItem(`kpn:cihaz:${lg}:${s}`);
+            if (sunucu && cihaz === sunucu) {
+                setMesgul(false);
+                await ligeGir(lg, ad, otomatik);
+                return;
+            }
+            setPinEkrani({ lig: lg, isim: ad.trim(), slug: s, yeni: !sunucu, sunucu });
+            setEkran("pin");
+        }
+        catch (e) {
+            setBilgi("Bağlantı kurulamadı. İnternetini kontrol edip tekrar dene.");
+        }
+        setMesgul(false);
+    }
+    async function pinOnayla() {
+        const { lig: lg, isim, slug: s, yeni, sunucu } = pinEkrani;
+        if (!/^\d{4}$/.test(pin)) {
+            setPinHata("PIN 4 rakam olmalı.");
+            return;
+        }
+        setMesgul(true);
+        setPinHata("");
+        try {
+            const karma = await pinKarma(lg, s, pin);
+            if (yeni) {
+                if (pin !== pin2) {
+                    setPinHata("İki PIN aynı değil.");
+                    setMesgul(false);
+                    return;
+                }
+                await depo.set(`kpn:${lg}:kimlik:${s}`, JSON.stringify({ karma, olusturma: Date.now() }));
+            }
+            else if (karma !== sunucu) {
+                setPinHata("PIN yanlış.");
+                setPin("");
+                setMesgul(false);
+                return;
+            }
+            localStorage.setItem(`kpn:cihaz:${lg}:${s}`, karma);
+            setPinEkrani(null);
+            setPin("");
+            setPin2("");
+            setMesgul(false);
+            await ligeGir(lg, isim, false);
+            return;
+        }
+        catch (e) {
+            setPinHata("Kaydedilemedi, tekrar dene.");
+        }
+        setMesgul(false);
     }
     async function ligeGir(lg, ad, sessiz) {
         if (!lg.trim() || !ad.trim())
@@ -603,8 +683,31 @@ function Kupon() {
                         React.createElement(Yuz, { isim: n, boy: 26, vurgu: isim === n }),
                         n))))),
                 React.createElement("div", { style: { marginTop: 24 } },
-                    React.createElement("button", { className: "kp-dg", disabled: !lig.trim() || !isim.trim() || mesgul, onClick: () => ligeGir(lig, isim, false) }, mesgul ? "…" : "Lige gir")),
-                React.createElement("p", { style: { fontSize: 11, color: "#5F6B85", marginTop: 20, lineHeight: 1.6 } }, "Kuponun ve portf\u00F6y\u00FCn ayn\u0131 grup kodunu kullanan herkese g\u00F6r\u00FCn\u00FCr. Hafta kapanmadan ba\u015Fkalar\u0131n\u0131n tahminleri gizli tutulur."))));
+                    React.createElement("button", { className: "kp-dg", disabled: !lig.trim() || !isim.trim() || mesgul, onClick: () => girisDene(lig, isim, false) }, mesgul ? "…" : "Devam")),
+                React.createElement("p", { style: { fontSize: 11, color: "#5F6B85", marginTop: 20, lineHeight: 1.6 } }, "Ad\u0131n\u0131 se\u00E7tikten sonra sana \u00F6zel 4 haneli bir PIN belirleyeceksin. Ayn\u0131 telefondan bir daha sorulmaz."))));
+    }
+    /* ---------- PIN ---------- */
+    if (ekran === "pin" && pinEkrani) {
+        const { isim: pIsim, yeni } = pinEkrani;
+        return (React.createElement("div", { className: "kp" },
+            React.createElement("style", null, stil),
+            React.createElement("div", { className: "kp-ic", style: { paddingTop: 40 } },
+                React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 14, marginBottom: 22 } },
+                    React.createElement(Yuz, { isim: pIsim, boy: 54, vurgu: true }),
+                    React.createElement("div", null,
+                        React.createElement("div", { className: "kp-h", style: { fontSize: 24 } }, pIsim),
+                        React.createElement("div", { className: "kp-mono", style: { fontSize: 11, color: "#8A94AD", marginTop: 4 } }, pinEkrani.lig.toUpperCase()))),
+                React.createElement("div", { className: "kp-kat" },
+                    React.createElement("div", { className: "kp-et" }, yeni ? "PIN belirle" : "PIN gir"),
+                    React.createElement("div", { style: { fontSize: 13.5, color: "#8A94AD", lineHeight: 1.65, marginBottom: 16 } }, yeni
+                        ? "Bu isim ilk kez kullanılıyor. 4 rakamlı bir PIN belirle — bundan sonra bu isimle sadece PIN'i bilen girebilir."
+                        : "Bu isim daha önce kullanılmış. Devam etmek için PIN'ini gir."),
+                    React.createElement("input", { className: "kp-gir kp-mono", inputMode: "numeric", type: "password", autoComplete: "off", style: { textAlign: "center", fontSize: 26, letterSpacing: ".5em", padding: "14px 0" }, value: pin, placeholder: "\u2022\u2022\u2022\u2022", maxLength: 4, onChange: e => { setPin(e.target.value.replace(/\D/g, "").slice(0, 4)); setPinHata(""); } }),
+                    yeni && (React.createElement("input", { className: "kp-gir kp-mono", inputMode: "numeric", type: "password", autoComplete: "off", style: { textAlign: "center", fontSize: 26, letterSpacing: ".5em", padding: "14px 0", marginTop: 10 }, value: pin2, placeholder: "tekrar", maxLength: 4, onChange: e => { setPin2(e.target.value.replace(/\D/g, "").slice(0, 4)); setPinHata(""); } })),
+                    pinHata && React.createElement("div", { style: { color: "#F0564A", fontSize: 13, marginTop: 12, fontWeight: 600 } }, pinHata),
+                    React.createElement("button", { className: "kp-dg", style: { marginTop: 16 }, disabled: mesgul || pin.length !== 4 || (yeni && pin2.length !== 4), onClick: pinOnayla }, mesgul ? "…" : yeni ? "PIN'i kaydet ve gir" : "Gir"),
+                    React.createElement("button", { className: "kp-dg2", style: { width: "100%", marginTop: 8 }, onClick: () => { setPinEkrani(null); setPin(""); setPin2(""); setPinHata(""); setEkran("giris"); } }, "Geri")),
+                React.createElement("div", { style: { fontSize: 11.5, color: "#5F6B85", lineHeight: 1.65, padding: "0 4px" } }, "PIN'ini unutursan grubu kuran ki\u015Fi Supabase'den kayd\u0131n\u0131 silebilir, yeniden belirlersin."))));
     }
     /* ---------- TAKIM LİSTESİ (ilk kurulum) ---------- */
     if (ekran === "takimlar") {
