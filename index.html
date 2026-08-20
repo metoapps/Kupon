@@ -137,7 +137,7 @@ const HAZIR_FIKSTUR = Object.fromEntries(HAZIR_MACLAR.map((maclar, i) => [i + 1,
 const KREDI = 70, PORTFOY_ADET = 4;
 const BUYUK4 = ["GS", "FB", "BJK", "TS"];
 const TEK_SAHIP_CARPAN = 1.25;
-const SURUM = "20.08 12:01";
+const SURUM = "20.08 12:34";
 const TAKMA_ADLAR = ["Meto", "Fero", "Josh", "Buzlulatte", "Lort"];
 /* Grup avatarları — 132px, gömülü */
 const AVATARLAR = {
@@ -705,37 +705,43 @@ function Kupon() {
     }, [kurulum, tablo, portfoy, resmi]);
     /* Haftanın tahmincisi (en yüksek) ve bidonu (en düşük).
        Herkes aynı puandaysa veya tek kişi kupon yatırdıysa bidon seçilmez. */
-    const haftaUclari = (h) => {
+    /* ---------- haftalık ödül ----------
+       Yalnızca kupon puanına göre; portföy hesaba katılmaz.
+       Beraberlikte eşit olanların kapladığı sıraların ödülleri toplanıp
+       aralarında eşit bölüşülür; haftalık dağıtılan toplam sabit kalır. */
+    const ODULLER = [50, 30, 20, 10, 1];
+    const ODUL_ETIKET = ["", "", "", "", "dilenci"];
+    const haftaOdul = (h) => {
         const e = Object.entries((h && h.puanlar) || {});
-        if (!e.length) return { tahminci: [], bidon: [], enCok: 0, enAz: 0 };
-        const enCok = Math.max(...e.map(x => x[1]));
-        const enAz = Math.min(...e.map(x => x[1]));
+        if (!e.length) return [];
         const ad = (sl) => (h.isimler && h.isimler[sl]) || sl;
-        const tahminci = e.filter(x => x[1] === enCok).map(x => ad(x[0]));
-        const bidon = (e.length >= 2 && enCok !== enAz)
-            ? e.filter(x => x[1] === enAz).map(x => ad(x[0])) : [];
-        return { tahminci, bidon, enCok, enAz };
+        const sirali = e.slice().sort((a, b) => b[1] - a[1]);
+        const cikti = [];
+        let i = 0;
+        while (i < sirali.length) {
+            let k = i;
+            while (k + 1 < sirali.length && sirali[k + 1][1] === sirali[i][1]) k++;
+            let havuz = 0;
+            for (let d = i; d <= k; d++) havuz += (ODULLER[d] || 0);
+            const pay = havuz / (k - i + 1);
+            for (let d = i; d <= k; d++) {
+                cikti.push({
+                    slug: sirali[d][0], isim: ad(sirali[d][0]), puan: sirali[d][1],
+                    sira: i + 1, odul: pay, esit: k > i,
+                    etiket: (k === i) ? (ODUL_ETIKET[d] || "") : "",
+                });
+            }
+            i = k + 1;
+        }
+        return cikti;
     };
-    const kralIsimleri = (h) => haftaUclari(h).tahminci;
-    const bidonIsimleri = (h) => haftaUclari(h).bidon;
-    const haftaKrali = (h) => {
-        const u = haftaUclari(h);
-        return u.tahminci.length ? u.tahminci.join(", ") + ` (${u.enCok})` : null;
-    };
-    const haftaBidonu = (h) => {
-        const u = haftaUclari(h);
-        return u.bidon.length ? u.bidon.join(", ") + ` (${u.enAz})` : null;
-    };
-    const kupaSayaci = useMemo(() => {
-        const t = {}, b = {};
+    const paraYaz = (n) => (Math.round(n * 100) / 100).toString().replace(".", ",") + " \u20AC";
+    const kasa = useMemo(() => {
+        const k = {};
         ((tablo && tablo.haftalar) || []).forEach(h => {
-            const u = haftaUclari(h);
-            const ters = {};
-            Object.entries(h.isimler || {}).forEach(([sl, isim]) => { ters[isim] = sl; });
-            u.tahminci.forEach(isim => { const k = ters[isim] || isim; t[k] = (t[k] || 0) + 1; });
-            u.bidon.forEach(isim => { const k = ters[isim] || isim; b[k] = (b[k] || 0) + 1; });
+            haftaOdul(h).forEach(x => { k[x.slug] = (k[x.slug] || 0) + x.odul; });
         });
-        return { tahminci: t, bidon: b };
+        return k;
     }, [tablo]);
     /* ---------- stil ---------- */
     const stil = `
@@ -1110,8 +1116,7 @@ function Kupon() {
                             React.createElement(Yuz, { isim: k.isim, boy: 40, vurgu: i === 0 }),
                             React.createElement("span", { style: { fontFamily: "Inter,sans-serif", fontSize: 14, fontWeight: 600, color: k.slug === ben.slug ? "#34D399" : "#EDF1F7", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } },
                                 k.isim,
-                                kupaSayaci.tahminci[k.slug] > 0 && React.createElement("span", { style: { fontSize: 11, marginLeft: 5, color: "#34D399" } }, "\uD83C\uDFC6" + kupaSayaci.tahminci[k.slug]),
-                                kupaSayaci.bidon[k.slug] > 0 && React.createElement("span", { style: { fontSize: 11, marginLeft: 4, color: "#F0685A" } }, "\uD83E\uDEA3" + kupaSayaci.bidon[k.slug]))),
+                                kasa[k.slug] > 0 && React.createElement("span", { className: "kp-mono", style: { fontSize: 11, marginLeft: 6, color: "#34D399", fontWeight: 700 } }, paraYaz(kasa[k.slug])))),
                         React.createElement("div", { style: { textAlign: "right", fontSize: 13, color: "#8A94AD" } }, k.kupon),
                         React.createElement("div", { style: { textAlign: "right", fontSize: 13, color: "#8A94AD" } }, (portfoyAcik || k.slug === ben.slug) ? k.portfoy : "–"),
                         React.createElement("div", { style: { textAlign: "right", fontSize: 16, fontWeight: 700 } }, (portfoyAcik || k.slug === ben.slug) ? k.genel : k.kupon))))),
@@ -1127,18 +1132,23 @@ function Kupon() {
                                         h.no,
                                         ". hafta"),
                                     React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 7, marginTop: 4, flexWrap: "wrap" } },
-                                        React.createElement("span", { style: { display: "flex", alignItems: "center", gap: 6 } },
-                                            React.createElement("span", { style: { fontSize: 13 } }, "\uD83C\uDFC6"),
-                                            kralIsimleri(h).map(kk => React.createElement(Yuz, { key: kk, isim: kk, boy: 30, vurgu: true })),
-                                            React.createElement("span", { className: "kp-mono", style: { fontSize: 10.5, color: "#34D399", letterSpacing: ".02em" } },
-                                                "TAHM\u0130NC\u0130 ", haftaKrali(h) || "—")),
-                                        bidonIsimleri(h).length > 0 && React.createElement("span", { style: { display: "flex", alignItems: "center", gap: 6 } },
-                                            React.createElement("span", { style: { fontSize: 13 } }, "\uD83E\uDEA3"),
-                                            bidonIsimleri(h).map(kk => React.createElement(Yuz, { key: kk, isim: kk, boy: 30 })),
-                                            React.createElement("span", { className: "kp-mono", style: { fontSize: 10.5, color: "#F0685A", letterSpacing: ".02em" } },
-                                                "B\u0130DON ", haftaBidonu(h))))),
+                                        haftaOdul(h).filter(x => x.sira === 1).map(x => React.createElement("span", { key: x.slug, style: { display: "flex", alignItems: "center", gap: 6 } },
+                                            React.createElement(Yuz, { isim: x.isim, boy: 30, vurgu: true }),
+                                            React.createElement("span", { className: "kp-mono", style: { fontSize: 11, color: "#34D399", fontWeight: 700 } }, paraYaz(x.odul)))))),
                                 React.createElement("div", { style: { color: "#5F6B85", fontSize: 13 } }, acik ? "▾" : "▸")),
                             acik && (React.createElement("div", { style: { paddingBottom: 14 } },
+                                React.createElement("div", { style: { background: "#111826", borderRadius: 10, padding: "10px 12px", marginBottom: 10 } },
+                                    React.createElement("div", { className: "kp-mono", style: { fontSize: 10, color: "#5F6B85", letterSpacing: ".08em", marginBottom: 8 } }, "HAFTANIN KASASI"),
+                                    haftaOdul(h).map(x => React.createElement("div", { key: x.slug, style: { display: "grid", gridTemplateColumns: "22px 1fr auto auto", gap: 8, alignItems: "center", padding: "5px 0" } },
+                                        React.createElement("span", { className: "kp-mono", style: { fontSize: 12, color: "#5F6B85" } }, x.sira + "."),
+                                        React.createElement("span", { style: { display: "flex", alignItems: "center", gap: 7, minWidth: 0 } },
+                                            React.createElement(Yuz, { isim: x.isim, boy: 30, vurgu: x.sira === 1 }),
+                                            React.createElement("span", { style: { fontSize: 13, color: "#EDF1F7", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } },
+                                                x.isim,
+                                                x.etiket && React.createElement("span", { style: { fontSize: 10.5, color: "#F0685A", marginLeft: 5 } }, "(" + x.etiket + ")"),
+                                                x.esit && React.createElement("span", { style: { fontSize: 10, color: "#5F6B85", marginLeft: 5 } }, "e\u015Fit"))),
+                                        React.createElement("span", { className: "kp-mono", style: { fontSize: 12, color: "#8A94AD" } }, x.puan),
+                                        React.createElement("span", { className: "kp-mono", style: { fontSize: 13, fontWeight: 700, color: x.sira === 1 ? "#34D399" : (x.odul <= 1 ? "#F0685A" : "#C8D2E4"), whiteSpace: "nowrap" } }, paraYaz(x.odul))))),
                                 h.maclar.map((m, i) => (React.createElement("div", { key: i, className: "kp-mono", style: { fontSize: 12, padding: "6px 0", borderTop: "1px dotted #243149" } },
                                     React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 54px 1fr", gap: 6, alignItems: "center", marginBottom: 5 } },
                                         React.createElement("div", { style: { textAlign: "right", color: "#EDF1F7" } }, T(m.e).kod),
