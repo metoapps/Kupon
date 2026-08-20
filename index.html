@@ -260,6 +260,28 @@ function Kupon() {
     const [acikHafta, setAcikHafta] = useState(null);
     const takimlar = (kurulum === null || kurulum === void 0 ? void 0 : kurulum.takimlar) || VARSAYILAN_TAKIMLAR;
     const T = (i) => takimlar[i] || { ad: "?", kod: "?", guc: 60 };
+    /* ---------- otomatik yenileme ----------
+       Veri eskiden yalnızca sayfa ilk açıldığında çekiliyordu; telefon sekmeyi
+       bellekte tuttuğu için kullanıcı uygulamayı "açtığında" eski hafta kalıyordu. */
+    useEffect(() => {
+        if (!lig || !ben) return;
+        let mesgul = false;
+        const tazele = async () => {
+            if (mesgul || document.hidden) return;
+            mesgul = true;
+            try { await veriYukle(lig, ben.slug); } catch (e) { }
+            mesgul = false;
+        };
+        const gorunurluk = () => { if (!document.hidden) tazele(); };
+        document.addEventListener("visibilitychange", gorunurluk);
+        window.addEventListener("focus", tazele);
+        const saat = setInterval(tazele, 60000);
+        return () => {
+            document.removeEventListener("visibilitychange", gorunurluk);
+            window.removeEventListener("focus", tazele);
+            clearInterval(saat);
+        };
+    }, [lig, ben]);
     /* ---------- açılış ---------- */
     useEffect(() => {
         (async () => {
@@ -680,20 +702,40 @@ function Kupon() {
             return { ...o, kupon, portfoy: pf, genel: kupon + pf };
         }).sort((a, b) => b.genel - a.genel);
     }, [kurulum, tablo, portfoy, resmi]);
-    const kralIsimleri = (h) => {
-        const e = Object.entries(h.puanlar || {});
-        if (!e.length)
-            return [];
-        const max = Math.max(...e.map(x => x[1]));
-        return e.filter(x => x[1] === max).map(x => { var _a; return ((_a = h.isimler) === null || _a === void 0 ? void 0 : _a[x[0]]) || x[0]; });
+    /* Haftanın tahmincisi (en yüksek) ve bidonu (en düşük).
+       Herkes aynı puandaysa veya tek kişi kupon yatırdıysa bidon seçilmez. */
+    const haftaUclari = (h) => {
+        const e = Object.entries((h && h.puanlar) || {});
+        if (!e.length) return { tahminci: [], bidon: [], enCok: 0, enAz: 0 };
+        const enCok = Math.max(...e.map(x => x[1]));
+        const enAz = Math.min(...e.map(x => x[1]));
+        const ad = (sl) => (h.isimler && h.isimler[sl]) || sl;
+        const tahminci = e.filter(x => x[1] === enCok).map(x => ad(x[0]));
+        const bidon = (e.length >= 2 && enCok !== enAz)
+            ? e.filter(x => x[1] === enAz).map(x => ad(x[0])) : [];
+        return { tahminci, bidon, enCok, enAz };
     };
+    const kralIsimleri = (h) => haftaUclari(h).tahminci;
+    const bidonIsimleri = (h) => haftaUclari(h).bidon;
     const haftaKrali = (h) => {
-        const e = Object.entries(h.puanlar);
-        if (!e.length)
-            return null;
-        const max = Math.max(...e.map(x => x[1]));
-        return e.filter(x => x[1] === max).map(x => h.isimler[x[0]] || x[0]).join(", ") + ` (${max})`;
+        const u = haftaUclari(h);
+        return u.tahminci.length ? u.tahminci.join(", ") + ` (${u.enCok})` : null;
     };
+    const haftaBidonu = (h) => {
+        const u = haftaUclari(h);
+        return u.bidon.length ? u.bidon.join(", ") + ` (${u.enAz})` : null;
+    };
+    const kupaSayaci = useMemo(() => {
+        const t = {}, b = {};
+        ((tablo && tablo.haftalar) || []).forEach(h => {
+            const u = haftaUclari(h);
+            const ters = {};
+            Object.entries(h.isimler || {}).forEach(([sl, isim]) => { ters[isim] = sl; });
+            u.tahminci.forEach(isim => { const k = ters[isim] || isim; t[k] = (t[k] || 0) + 1; });
+            u.bidon.forEach(isim => { const k = ters[isim] || isim; b[k] = (b[k] || 0) + 1; });
+        });
+        return { tahminci: t, bidon: b };
+    }, [tablo]);
     /* ---------- stil ---------- */
     const stil = `
 @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
@@ -1062,7 +1104,10 @@ function Kupon() {
                         React.createElement("div", { style: { color: i === 0 ? "#34D399" : "#5F6B85", fontWeight: 700, fontSize: 13 } }, i + 1),
                         React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 9, minWidth: 0 } },
                             React.createElement(Yuz, { isim: k.isim, boy: 30, vurgu: i === 0 }),
-                            React.createElement("span", { style: { fontFamily: "Inter,sans-serif", fontSize: 14, fontWeight: 600, color: k.slug === ben.slug ? "#34D399" : "#EDF1F7", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, k.isim)),
+                            React.createElement("span", { style: { fontFamily: "Inter,sans-serif", fontSize: 14, fontWeight: 600, color: k.slug === ben.slug ? "#34D399" : "#EDF1F7", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } },
+                                k.isim,
+                                kupaSayaci.tahminci[k.slug] > 0 && React.createElement("span", { style: { fontSize: 11, marginLeft: 5, color: "#34D399" } }, "\uD83C\uDFC6" + kupaSayaci.tahminci[k.slug]),
+                                kupaSayaci.bidon[k.slug] > 0 && React.createElement("span", { style: { fontSize: 11, marginLeft: 4, color: "#F0685A" } }, "\uD83E\uDEA3" + kupaSayaci.bidon[k.slug]))),
                         React.createElement("div", { style: { textAlign: "right", fontSize: 13, color: "#8A94AD" } }, k.kupon),
                         React.createElement("div", { style: { textAlign: "right", fontSize: 13, color: "#8A94AD" } }, (portfoyAcik || k.slug === ben.slug) ? k.portfoy : "–"),
                         React.createElement("div", { style: { textAlign: "right", fontSize: 16, fontWeight: 700 } }, (portfoyAcik || k.slug === ben.slug) ? k.genel : k.kupon))))),
@@ -1077,11 +1122,17 @@ function Kupon() {
                                     React.createElement("div", { style: { fontSize: 14, fontWeight: 600 } },
                                         h.no,
                                         ". hafta"),
-                                    React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 7, marginTop: 4 } },
-                                        kralIsimleri(h).map(kk => React.createElement(Yuz, { key: kk, isim: kk, boy: 22, vurgu: true })),
-                                        React.createElement("span", { className: "kp-mono", style: { fontSize: 11, color: "#8A94AD" } },
-                                            "haftan\u0131n kral\u0131: ",
-                                            haftaKrali(h) || "—"))),
+                                    React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 7, marginTop: 4, flexWrap: "wrap" } },
+                                        React.createElement("span", { style: { display: "flex", alignItems: "center", gap: 6 } },
+                                            React.createElement("span", { style: { fontSize: 13 } }, "\uD83C\uDFC6"),
+                                            kralIsimleri(h).map(kk => React.createElement(Yuz, { key: kk, isim: kk, boy: 22, vurgu: true })),
+                                            React.createElement("span", { className: "kp-mono", style: { fontSize: 10.5, color: "#34D399", letterSpacing: ".02em" } },
+                                                "TAHM\u0130NC\u0130 ", haftaKrali(h) || "—")),
+                                        bidonIsimleri(h).length > 0 && React.createElement("span", { style: { display: "flex", alignItems: "center", gap: 6 } },
+                                            React.createElement("span", { style: { fontSize: 13 } }, "\uD83E\uDEA3"),
+                                            bidonIsimleri(h).map(kk => React.createElement(Yuz, { key: kk, isim: kk, boy: 22 })),
+                                            React.createElement("span", { className: "kp-mono", style: { fontSize: 10.5, color: "#F0685A", letterSpacing: ".02em" } },
+                                                "B\u0130DON ", haftaBidonu(h))))),
                                 React.createElement("div", { style: { color: "#5F6B85", fontSize: 13 } }, acik ? "▾" : "▸")),
                             acik && (React.createElement("div", { style: { paddingBottom: 14 } },
                                 h.maclar.map((m, i) => (React.createElement("div", { key: i, className: "kp-mono", style: { fontSize: 12, padding: "6px 0", borderTop: "1px dotted #243149" } },
