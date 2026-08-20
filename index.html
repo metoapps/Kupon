@@ -141,7 +141,7 @@ const HAZIR_FIKSTUR = Object.fromEntries(HAZIR_MACLAR.map((maclar, i) => [i + 1,
 const KREDI = 70, PORTFOY_ADET = 4;
 const BUYUK4 = ["GS", "FB", "BJK", "TS"];
 const TEK_SAHIP_CARPAN = 1.25;
-const SURUM = "20.08 13:06";
+const SURUM = "20.08 13:30";
 const TAKMA_ADLAR = ["Meto", "Fero", "Josh", "Buzlulatte", "Lort"];
 /* Grup avatarları — 132px, gömülü */
 const AVATARLAR = {
@@ -795,7 +795,7 @@ function Kupon() {
 /* Unvan rozeti ve para göstergesi — ayrı görsel sınıflar */
 .kp-unvan{display:inline-flex;align-items:center;font-family:'JetBrains Mono',monospace;
   font-size:9px;font-weight:700;letter-spacing:.09em;padding:3px 8px;border-radius:99px;
-  white-space:nowrap;text-transform:uppercase;}
+  white-space:nowrap;}
 .kp-unvan.iyi{background:rgba(52,211,153,.16);color:#34D399;border:1px solid rgba(52,211,153,.3);}
 .kp-unvan.kotu{background:rgba(240,104,90,.14);color:#F0685A;border:1px solid rgba(240,104,90,.28);}
 .kp-para{font-family:'JetBrains Mono',monospace;font-size:14px;font-weight:700;
@@ -1153,7 +1153,7 @@ function Kupon() {
                                         haftaOdul(h).filter(x => x.unvan).map(x => React.createElement("div", { key: x.slug, style: { display: "flex", alignItems: "center", gap: 8 } },
                                             React.createElement(Yuz, { isim: x.isim, boy: 30, vurgu: x.unvan === "alim" }),
                                             React.createElement("span", { className: "kp-unvan " + (x.unvan === "alim" ? "iyi" : "kotu") },
-                                                x.unvan === "alim" ? "AL\u0130M ULEMASI" : "DALLAMA"),
+                                                x.unvan === "alim" ? "AL\u0130M ULEMA" : "B\u0130DON D'OR"),
                                             React.createElement("span", { style: { flex: 1 } }),
                                             React.createElement("span", { className: "kp-para " + (x.unvan === "alim" ? "iyi" : "kotu") }, paraYaz(x.odul)))))),
                                 React.createElement("div", { style: { color: "#5F6B85", fontSize: 13 } }, acik ? "▾" : "▸")),
@@ -1169,7 +1169,7 @@ function Kupon() {
                                                 x.esit && React.createElement("span", { style: { fontSize: 10, color: "#5F6B85", marginLeft: 6 } }, "e\u015Fit")),
                                             x.unvan && React.createElement("span", null,
                                                 React.createElement("span", { className: "kp-unvan " + (x.unvan === "alim" ? "iyi" : "kotu") },
-                                                    x.unvan === "alim" ? "AL\u0130M ULEMASI" : "DALLAMA"))),
+                                                    x.unvan === "alim" ? "AL\u0130M ULEMA" : "B\u0130DON D'OR"))),
                                         React.createElement("span", { className: "kp-mono", style: { fontSize: 12, color: "#5F6B85", marginRight: 10, whiteSpace: "nowrap" } }, x.puan + "p"),
                                         React.createElement("span", { className: "kp-para " + (x.unvan === "alim" ? "iyi" : x.unvan === "dallama" ? "kotu" : "") }, paraYaz(x.odul))))),
                                 h.maclar.map((m, i) => (React.createElement("div", { key: i, className: "kp-mono", style: { fontSize: 12, padding: "6px 0", borderTop: "1px dotted #243149" } },
