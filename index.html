@@ -5,6 +5,10 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Kupon</title>
 <meta name="theme-color" content="#070B12">
+<!-- Tarayıcı ve ana ekran kısayolu dosyayı önbellekte tutmasın -->
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Kupon">
@@ -137,7 +141,7 @@ const HAZIR_FIKSTUR = Object.fromEntries(HAZIR_MACLAR.map((maclar, i) => [i + 1,
 const KREDI = 70, PORTFOY_ADET = 4;
 const BUYUK4 = ["GS", "FB", "BJK", "TS"];
 const TEK_SAHIP_CARPAN = 1.25;
-const SURUM = "20.08 12:34";
+const SURUM = "20.08 12:40";
 const TAKMA_ADLAR = ["Meto", "Fero", "Josh", "Buzlulatte", "Lort"];
 /* Grup avatarları — 132px, gömülü */
 const AVATARLAR = {
@@ -703,8 +707,6 @@ function Kupon() {
             return { ...o, kupon, portfoy: pf, genel: kupon + pf };
         }).sort((a, b) => b.genel - a.genel);
     }, [kurulum, tablo, portfoy, resmi]);
-    /* Haftanın tahmincisi (en yüksek) ve bidonu (en düşük).
-       Herkes aynı puandaysa veya tek kişi kupon yatırdıysa bidon seçilmez. */
     /* ---------- haftalık ödül ----------
        Yalnızca kupon puanına göre; portföy hesaba katılmaz.
        Beraberlikte eşit olanların kapladığı sıraların ödülleri toplanıp
