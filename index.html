@@ -141,7 +141,7 @@ const HAZIR_FIKSTUR = Object.fromEntries(HAZIR_MACLAR.map((maclar, i) => [i + 1,
 const KREDI = 70, PORTFOY_ADET = 4;
 const BUYUK4 = ["GS", "FB", "BJK", "TS"];
 const TEK_SAHIP_CARPAN = 1.25;
-const SURUM = "20.08 12:40";
+const SURUM = "20.08 13:06";
 const TAKMA_ADLAR = ["Meto", "Fero", "Josh", "Buzlulatte", "Lort"];
 /* Grup avatarları — 132px, gömülü */
 const AVATARLAR = {
@@ -712,7 +712,6 @@ function Kupon() {
        Beraberlikte eşit olanların kapladığı sıraların ödülleri toplanıp
        aralarında eşit bölüşülür; haftalık dağıtılan toplam sabit kalır. */
     const ODULLER = [50, 30, 20, 10, 1];
-    const ODUL_ETIKET = ["", "", "", "", "dilenci"];
     const haftaOdul = (h) => {
         const e = Object.entries((h && h.puanlar) || {});
         if (!e.length) return [];
@@ -730,11 +729,16 @@ function Kupon() {
                 cikti.push({
                     slug: sirali[d][0], isim: ad(sirali[d][0]), puan: sirali[d][1],
                     sira: i + 1, odul: pay, esit: k > i,
-                    etiket: (k === i) ? (ODUL_ETIKET[d] || "") : "",
                 });
             }
             i = k + 1;
         }
+                const puanlar = cikti.map(x => x.puan);
+        const enAz = Math.min(...puanlar), enCok = Math.max(...puanlar);
+        cikti.forEach(x => {
+            x.unvan = (x.puan === enCok) ? "alim"
+                : (cikti.length >= 2 && enCok !== enAz && x.puan === enAz) ? "dallama" : "";
+        });
         return cikti;
     };
     const paraYaz = (n) => (Math.round(n * 100) / 100).toString().replace(".", ",") + " \u20AC";
@@ -788,6 +792,18 @@ function Kupon() {
 .kp-cip.pas{opacity:.26;cursor:default;}
 .kp-gir{background:var(--kat2);border:1px solid var(--cizgi);color:var(--fg);padding:13px;border-radius:10px;width:100%;font-size:15px;font-family:Inter,sans-serif;transition:border-color .12s;}
 .kp-gir:focus{outline:none;border-color:var(--aksan2);box-shadow:0 0 0 3px rgba(16,185,129,.18);}
+/* Unvan rozeti ve para göstergesi — ayrı görsel sınıflar */
+.kp-unvan{display:inline-flex;align-items:center;font-family:'JetBrains Mono',monospace;
+  font-size:9px;font-weight:700;letter-spacing:.09em;padding:3px 8px;border-radius:99px;
+  white-space:nowrap;text-transform:uppercase;}
+.kp-unvan.iyi{background:rgba(52,211,153,.16);color:#34D399;border:1px solid rgba(52,211,153,.3);}
+.kp-unvan.kotu{background:rgba(240,104,90,.14);color:#F0685A;border:1px solid rgba(240,104,90,.28);}
+.kp-para{font-family:'JetBrains Mono',monospace;font-size:14px;font-weight:700;
+  color:#EDF1F7;white-space:nowrap;letter-spacing:-.01em;}
+.kp-para.iyi{color:#34D399;}
+.kp-para.kotu{color:#F0685A;}
+.kp-sira{display:flex;align-items:center;gap:9px;padding:7px 0;}
+
 .kp-alt{position:fixed;bottom:0;left:0;right:0;background:rgba(8,12,20,.97);backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);border-top:1px solid #2A3852;display:grid;grid-template-columns:repeat(4,1fr);gap:4px;padding:8px 8px calc(8px + env(safe-area-inset-bottom));z-index:40;box-shadow:0 -6px 20px rgba(0,0,0,.45);}
 .kp-alt button{background:none;border:none;color:#C8D2E4;padding:11px 2px;border-radius:11px;
   font-family:'Space Grotesk',sans-serif;font-size:14px;font-weight:700;letter-spacing:.04em;
@@ -1133,24 +1149,29 @@ function Kupon() {
                                     React.createElement("div", { style: { fontSize: 14, fontWeight: 600 } },
                                         h.no,
                                         ". hafta"),
-                                    React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 7, marginTop: 4, flexWrap: "wrap" } },
-                                        haftaOdul(h).filter(x => x.sira === 1).map(x => React.createElement("span", { key: x.slug, style: { display: "flex", alignItems: "center", gap: 6 } },
-                                            React.createElement(Yuz, { isim: x.isim, boy: 30, vurgu: true }),
-                                            React.createElement("span", { className: "kp-mono", style: { fontSize: 11, color: "#34D399", fontWeight: 700 } }, paraYaz(x.odul)))))),
+                                    React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 5, marginTop: 6 } },
+                                        haftaOdul(h).filter(x => x.unvan).map(x => React.createElement("div", { key: x.slug, style: { display: "flex", alignItems: "center", gap: 8 } },
+                                            React.createElement(Yuz, { isim: x.isim, boy: 30, vurgu: x.unvan === "alim" }),
+                                            React.createElement("span", { className: "kp-unvan " + (x.unvan === "alim" ? "iyi" : "kotu") },
+                                                x.unvan === "alim" ? "AL\u0130M ULEMASI" : "DALLAMA"),
+                                            React.createElement("span", { style: { flex: 1 } }),
+                                            React.createElement("span", { className: "kp-para " + (x.unvan === "alim" ? "iyi" : "kotu") }, paraYaz(x.odul)))))),
                                 React.createElement("div", { style: { color: "#5F6B85", fontSize: 13 } }, acik ? "▾" : "▸")),
                             acik && (React.createElement("div", { style: { paddingBottom: 14 } },
                                 React.createElement("div", { style: { background: "#111826", borderRadius: 10, padding: "10px 12px", marginBottom: 10 } },
                                     React.createElement("div", { className: "kp-mono", style: { fontSize: 10, color: "#5F6B85", letterSpacing: ".08em", marginBottom: 8 } }, "HAFTANIN KASASI"),
-                                    haftaOdul(h).map(x => React.createElement("div", { key: x.slug, style: { display: "grid", gridTemplateColumns: "22px 1fr auto auto", gap: 8, alignItems: "center", padding: "5px 0" } },
-                                        React.createElement("span", { className: "kp-mono", style: { fontSize: 12, color: "#5F6B85" } }, x.sira + "."),
-                                        React.createElement("span", { style: { display: "flex", alignItems: "center", gap: 7, minWidth: 0 } },
-                                            React.createElement(Yuz, { isim: x.isim, boy: 30, vurgu: x.sira === 1 }),
-                                            React.createElement("span", { style: { fontSize: 13, color: "#EDF1F7", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } },
+                                    haftaOdul(h).map(x => React.createElement("div", { key: x.slug, className: "kp-sira", style: { borderTop: "1px solid #1A2333" } },
+                                        React.createElement("span", { className: "kp-mono", style: { fontSize: 12, color: "#5F6B85", width: 18, flexShrink: 0 } }, x.sira + "."),
+                                        React.createElement(Yuz, { isim: x.isim, boy: 30, vurgu: x.unvan === "alim" }),
+                                        React.createElement("span", { style: { display: "flex", flexDirection: "column", gap: 3, minWidth: 0, flex: 1 } },
+                                            React.createElement("span", { style: { fontSize: 13.5, color: "#EDF1F7", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } },
                                                 x.isim,
-                                                x.etiket && React.createElement("span", { style: { fontSize: 10.5, color: "#F0685A", marginLeft: 5 } }, "(" + x.etiket + ")"),
-                                                x.esit && React.createElement("span", { style: { fontSize: 10, color: "#5F6B85", marginLeft: 5 } }, "e\u015Fit"))),
-                                        React.createElement("span", { className: "kp-mono", style: { fontSize: 12, color: "#8A94AD" } }, x.puan),
-                                        React.createElement("span", { className: "kp-mono", style: { fontSize: 13, fontWeight: 700, color: x.sira === 1 ? "#34D399" : (x.odul <= 1 ? "#F0685A" : "#C8D2E4"), whiteSpace: "nowrap" } }, paraYaz(x.odul))))),
+                                                x.esit && React.createElement("span", { style: { fontSize: 10, color: "#5F6B85", marginLeft: 6 } }, "e\u015Fit")),
+                                            x.unvan && React.createElement("span", null,
+                                                React.createElement("span", { className: "kp-unvan " + (x.unvan === "alim" ? "iyi" : "kotu") },
+                                                    x.unvan === "alim" ? "AL\u0130M ULEMASI" : "DALLAMA"))),
+                                        React.createElement("span", { className: "kp-mono", style: { fontSize: 12, color: "#5F6B85", marginRight: 10, whiteSpace: "nowrap" } }, x.puan + "p"),
+                                        React.createElement("span", { className: "kp-para " + (x.unvan === "alim" ? "iyi" : x.unvan === "dallama" ? "kotu" : "") }, paraYaz(x.odul))))),
                                 h.maclar.map((m, i) => (React.createElement("div", { key: i, className: "kp-mono", style: { fontSize: 12, padding: "6px 0", borderTop: "1px dotted #243149" } },
                                     React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 54px 1fr", gap: 6, alignItems: "center", marginBottom: 5 } },
                                         React.createElement("div", { style: { textAlign: "right", color: "#EDF1F7" } }, T(m.e).kod),
