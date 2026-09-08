@@ -1734,8 +1734,8 @@ async function haftayiKapat() {
                         React.createElement("div", { style: { fontSize: 12.5, color: "#8A94AD", padding: "0 6px 12px", lineHeight: 1.6 } }, "Erteleme ma\u00E7lar\u0131 ve atlanan haftalar y\u00FCz\u00FCnden yukar\u0131daki tablo ger\u00E7ek puanlardan sapabilir. Ayda bir TFF'nin tablosuna bak\u0131p 18 tak\u0131m\u0131n puan\u0131n\u0131 buraya yaz\u0131n \u2014 portf\u00F6y puanlar\u0131 o andan itibaren buradan hesaplan\u0131r. Kupon puanlar\u0131 etkilenmez."),
                         React.createElement("button", { className: "kp-dg2", style: { width: "100%" }, onClick: () => setResmiTaslak({}) }, "Resmi puanlar\u0131 gir")))),
                 React.createElement("button", { className: "kp-dg2", style: { width: "100%", marginTop: 20 }, onClick: () => { setEkran("giris"); setBen(null); setKurulum(null); setAktif(null); setTablo(null); setResmi(null); } }, "Ba\u015Fka gruba ge\u00E7")))),
-        React.createElement("div", { style: { textAlign: "center", padding: "18px 0 90px", fontSize: 10.5, color: "#4A5570", fontFamily: "'JetBrains Mono',monospace" } }, "sürüm " + SURUM)),
-        React.createElement("nav", { className: "kp-alt" }, [["kupon", "Kupon"], ["klasman", "Klasman"], ["portfoy", "Portföy"], ["lig", "Lig"]].map(([k, l]) => (React.createElement("button", { key: k, className: sekme === k ? "on" : "", onClick: () => setSekme(k) }, l)))));
+        React.createElement("div", { style: { textAlign: "center", padding: "18px 0 90px", fontSize: 10.5, color: "#4A5570", fontFamily: "'JetBrains Mono',monospace" } }, "sürüm " + SURUM),
+        React.createElement("nav", { className: "kp-alt" }, [["kupon", "Kupon"], ["klasman", "Klasman"], ["portfoy", "Portföy"], ["lig", "Lig"]].map(([k, l]) => (React.createElement("button", { key: k, className: sekme === k ? "on" : "", onClick: () => setSekme(k) }, l))))));
 }
 
 window.addEventListener("error", function (e) {
