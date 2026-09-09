@@ -91,7 +91,23 @@ const depo = {
            yapılıyordu; uzun kayıtlarda güvenilmez çalışıp sessizce
            "kayıt değişti" hatası veriyordu. Artık karşılaştırma burada yapılır. */
         const suan = await this.get(k);
-        if (!suan || suan.value !== onceki) throw new Error("Kayıt başka bir cihazda değişti. Yenileyip tekrar dene.");
+        /* Ham metni birebir karşılaştırmak yanlış alarm verebilir: Supabase
+           JSON'u anahtar sırası farklı biçimde geri döndürebilir, içerik aynı
+           olsa bile. JSON.parse+JSON.stringify bunu düzeltmez — anahtar sırasını
+           olduğu gibi korur. Bu yüzden anahtarları sıralayarak karşılaştırıyoruz. */
+        function kanonik(x) {
+            if (Array.isArray(x)) return x.map(kanonik);
+            if (x && typeof x === "object") {
+                const o = {};
+                Object.keys(x).sort().forEach(function (kk) { o[kk] = kanonik(x[kk]); });
+                return o;
+            }
+            return x;
+        }
+        let ayni;
+        try { ayni = suan && JSON.stringify(kanonik(JSON.parse(suan.value))) === JSON.stringify(kanonik(JSON.parse(onceki))); }
+        catch (e) { ayni = suan && suan.value === onceki; }
+        if (!ayni) throw new Error("Kayıt başka bir cihazda değişti. Yenileyip tekrar dene.");
         const r = await fetch(SB_URL + "/rest/v1/kupon_veri?anahtar=eq." + encodeURIComponent(k), {
             method: "PATCH",
             headers: Object.assign({}, SB_BASLIK, { Prefer: "return=representation" }),
