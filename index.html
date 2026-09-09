@@ -526,18 +526,18 @@ function Kupon() {
         const c=document.createElement('canvas');c.width=1080;
         const list=KAnaliz.rank(h.puanlar),shown=list.slice(0,10);c.height=510+shown.length*88;
         const g=c.getContext('2d');if(!g)throw new Error('Bu cihaz görsel oluşturmayı desteklemiyor.');
-        const grad=g.createLinearGradient(0,0,1080,c.height);grad.addColorStop(0,'#111e2a');grad.addColorStop(1,'#070b12');g.fillStyle=grad;g.fillRect(0,0,c.width,c.height);
-        g.fillStyle='#34d399';g.fillRect(64,64,72,8);g.font='bold 68px system-ui';g.fillText('KUPON',64,160);
-        g.fillStyle='#8a94ad';g.font='24px system-ui';g.fillText(lig.toUpperCase().slice(0,20)+' • '+TSDB.sezon,64,211);
-        g.fillStyle='#edf1f7';g.font='bold 44px system-ui';g.fillText(h.no+'. HAFTANIN SONUÇLARI',64,293);
-        g.fillStyle='#8a94ad';g.font='24px system-ui';g.fillText('Haftalık tahmin puanı • Eşit puanlar aynı sırada',64,339);
+        g.fillStyle='#17140f';g.fillRect(0,0,c.width,c.height);
+        g.fillStyle='#c1401f';g.fillRect(64,64,72,8);g.font='italic bold 68px Georgia,serif';g.fillText('Kupon',64,160);
+        g.fillStyle='#a89a80';g.font='24px system-ui';g.fillText(TSDB.sezon+' sezonu',64,211);
+        g.fillStyle='#eae3d3';g.font='bold 44px system-ui';g.fillText(h.no+'. HAFTANIN SONUÇLARI',64,293);
+        g.fillStyle='#a89a80';g.font='24px system-ui';g.fillText('Haftalık tahmin puanı • Eşit puanlar aynı sırada',64,339);
         shown.forEach((x,i)=>{
-            const y=407+i*88;g.fillStyle=x.sira===1?'#123a32':'#15202f';g.fillRect(64,y-33,952,70);
-            g.fillStyle=x.sira===1?'#34d399':'#edf1f7';g.font='bold 30px system-ui';g.fillText(String(x.sira).padStart(2,'0'),86,y+12);
+            const y=407+i*88;g.fillStyle=x.sira===1?'#2a1c14':'#211d16';g.fillRect(64,y-33,952,70);
+            g.fillStyle=x.sira===1?'#c1401f':'#eae3d3';g.font='bold 30px system-ui';g.fillText(String(x.sira).padStart(2,'0'),86,y+12);
             const _o1=kurulum.oyuncular.find(o=>o.slug===x.slug); const name=((h.isimler&&h.isimler[x.slug])||(_o1&&_o1.isim)||x.slug).slice(0,24);g.fillText(name,164,y+12);
             g.textAlign='right';g.fillText(x.puan+' P',985,y+12);g.textAlign='left';
         });
-        g.fillStyle='#8a94ad';g.font='22px system-ui';g.fillText(list.length>10?'İlk 10 oyuncu • Tam tablo oyunda':'Arkadaşlar arasında, sezon boyunca.',64,c.height-48);
+        g.fillStyle='#a89a80';g.font='22px system-ui';g.fillText(list.length>10?'İlk 10 oyuncu • Tam tablo oyunda':'Arkadaşlar arasında, sezon boyunca.',64,c.height-48);
         const blob=await new Promise(resolve=>c.toBlob(resolve,'image/png'));if(!blob)throw new Error('Görsel hazırlanamadı.');
         setPaylasim({blob,name:'kupon-hafta-'+h.no+'.png',hafta:h.no});setBilgi('Haftalık kart hazır. İndir veya paylaş.');
     }
@@ -1027,7 +1027,7 @@ function Kupon() {
     /* ================= EK GÖRÜNÜMLER =================
        Hepsi mevcut veriden türetilir; puanlama ve kayıt mantığına dokunmaz. */
 
-    const CIZGI_RENK = ["#C1401F", "#C1401F", "#60A5FA", "#F0685A", "#C084FC"];
+    const CIZGI_RENK = ["#C1401F", "#C9A227", "#5B84A6", "#7A8F5E", "#9C7A9E"];
 
     /* Hafta hafta biriken kupon puanı — sezon grafiği için */
     const sezonSerisi = useMemo(() => {
@@ -1217,8 +1217,8 @@ function Kupon() {
 .kp-unvan{display:inline-flex;align-items:center;font-family:'JetBrains Mono',monospace;
   font-size:9px;font-weight:700;letter-spacing:.09em;padding:3px 8px;border-radius:99px;
   white-space:nowrap;}
-.kp-unvan.iyi{background:rgba(193,64,31,.16);color:#C1401F;border:1px solid rgba(193,64,31,.3);}
-.kp-unvan.kotu{background:rgba(193,64,31,.14);color:#F0685A;border:1px solid rgba(193,64,31,.28);}
+.kp-unvan.iyi{background:rgba(193,64,31,.16);color:#C1401F;border:1px solid rgba(193,64,31,.35);}
+.kp-unvan.kotu{background:rgba(168,154,128,.14);color:#A89A80;border:1px solid rgba(168,154,128,.32);}
 .kp-patlican{width:22px;height:22px;border-radius:6px;object-fit:cover;
   box-shadow:0 1px 4px rgba(0,0,0,.35);vertical-align:middle;}
 .kp-banko2x{display:inline-flex;align-items:center;font-family:'JetBrains Mono',monospace;
@@ -1226,8 +1226,8 @@ function Kupon() {
   white-space:nowrap;background:rgba(193,64,31,.16);color:#C1401F;border:1px solid rgba(193,64,31,.32);}
 .kp-para{font-family:'JetBrains Mono',monospace;font-size:14px;font-weight:700;
   color:#EAE3D3;white-space:nowrap;letter-spacing:-.01em;}
-.kp-para.iyi{color:#C1401F;}
-.kp-para.kotu{color:#F0685A;}
+.kp-para.iyi{color:#EAE3D3;}
+.kp-para.kotu{color:#EAE3D3;}
 .kp-sira{display:flex;align-items:center;gap:9px;padding:7px 0;}
 
 /* ---- Sezon grafiği ---- */
@@ -1446,7 +1446,7 @@ function Kupon() {
                     React.createElement(Yuz, { isim: pIsim, boy: 72, vurgu: true }),
                     React.createElement("div", null,
                         React.createElement("div", { className: "kp-h", style: { fontSize: 24 } }, pIsim),
-                        React.createElement("div", { className: "kp-mono", style: { fontSize: 11, color: "#A89A80", marginTop: 4 } }, pinEkrani.lig.toUpperCase()))),
+                        React.createElement("div", { className: "kp-mono", style: { fontSize: 11, color: "#A89A80", marginTop: 4 } }, (function(){return "Grup girişi";})())))),
                 React.createElement("div", { className: "kp-kat" },
                     React.createElement("div", { className: "kp-et" }, yeni ? "PIN belirle" : "PIN gir"),
                     React.createElement("div", { style: { fontSize: 13.5, color: "#A89A80", lineHeight: 1.65, marginBottom: 16 } }, yeni
@@ -1457,7 +1457,7 @@ function Kupon() {
                     pinHata && React.createElement("div", { style: { color: "#C1401F", fontSize: 13, marginTop: 12, fontWeight: 600 } }, pinHata),
                     React.createElement("button", { className: "kp-dg", style: { marginTop: 16 }, disabled: mesgul || pin.length !== 4 || (yeni && pin2.length !== 4), onClick: pinOnayla }, mesgul ? "…" : yeni ? "PIN'i kaydet ve gir" : "Gir"),
                     React.createElement("button", { className: "kp-dg2", style: { width: "100%", marginTop: 8 }, onClick: () => { setPinEkrani(null); setPin(""); setPin2(""); setPinHata(""); setEkran("giris"); } }, "Geri")),
-                React.createElement("div", { style: { fontSize: 11.5, color: "#7A6F5C", lineHeight: 1.65, padding: "0 4px" } }, "PIN'ini unutursan grubu kuran ki\u015Fi Supabase'den kayd\u0131n\u0131 silebilir, yeniden belirlersin."))));
+                React.createElement("div", { style: { fontSize: 11.5, color: "#7A6F5C", lineHeight: 1.65, padding: "0 4px" } }, "PIN'ini unutursan grubu kuran ki\u015Fi Supabase'den kayd\u0131n\u0131 silebilir, yeniden belirlersin.")));
     }
     /* ---------- TAKIM LİSTESİ (ilk kurulum) ---------- */
     if (ekran === "takimlar") {
@@ -1612,8 +1612,6 @@ function Kupon() {
                 React.createElement("div", null,
                     React.createElement("div", { className: "kp-h", style: { fontSize: 18 } }, ben === null || ben === void 0 ? void 0 : ben.isim),
                     React.createElement("div", { className: "kp-mono", style: { fontSize: 10.5, color: "#A89A80", marginTop: 4 } },
-                        lig.toUpperCase(),
-                        " \u00B7 ",
                         (tablo === null || tablo === void 0 ? void 0 : tablo.haftalar.length) || 0,
                         " HAFTA OYNANDI"))),
             React.createElement("div", { style: { textAlign: "right" } },
