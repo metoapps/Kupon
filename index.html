@@ -76,15 +76,30 @@ const depo = {
         return { key: k, value: v, shared: true };
     },
     async kosulluSet(k, v, onceki) {
-        const yeni = onceki === null;
-        const r = await fetch(SB_URL + "/rest/v1/kupon_veri" + (yeni ? "" : "?anahtar=eq." + encodeURIComponent(k) + "&deger=eq." + encodeURIComponent("\"" + onceki.replace(/\\/g, "\\\\").replace(/"/g, "\\\"") + "\"")), {
-            method: yeni ? "POST" : "PATCH",
-            headers: { ...SB_BASLIK, Prefer: "return=representation" },
-            body: JSON.stringify(yeni ? { anahtar: k, deger: v, guncelleme: new Date().toISOString() } : { deger: v, guncelleme: new Date().toISOString() }),
+        /* Yeni kayıt: doğrudan ekle. */
+        if (onceki === null) {
+            const r0 = await fetch(SB_URL + "/rest/v1/kupon_veri", {
+                method: "POST",
+                headers: Object.assign({}, SB_BASLIK, { Prefer: "return=representation" }),
+                body: JSON.stringify({ anahtar: k, deger: v, guncelleme: new Date().toISOString() }),
+            });
+            if (!r0.ok) throw new Error("Kayıt tamamlanamadı (" + r0.status + ").");
+            return;
+        }
+        /* Çakışma kontrolü: yazmadan hemen önce sunucudaki değeri oku.
+           Eskiden bu, koca JSON metnini adres satırına filtre olarak gömerek
+           yapılıyordu; uzun kayıtlarda güvenilmez çalışıp sessizce
+           "kayıt değişti" hatası veriyordu. Artık karşılaştırma burada yapılır. */
+        const suan = await this.get(k);
+        if (!suan || suan.value !== onceki) throw new Error("Kayıt başka bir cihazda değişti. Yenileyip tekrar dene.");
+        const r = await fetch(SB_URL + "/rest/v1/kupon_veri?anahtar=eq." + encodeURIComponent(k), {
+            method: "PATCH",
+            headers: Object.assign({}, SB_BASLIK, { Prefer: "return=representation" }),
+            body: JSON.stringify({ deger: v, guncelleme: new Date().toISOString() }),
         });
-        if (!r.ok) throw new Error(r.status === 409 ? "Kayıt başka bir cihazda değişti. Yenileyip tekrar dene." : "Kayıt tamamlanamadı (" + r.status + ").");
+        if (!r.ok) throw new Error("Kayıt tamamlanamadı (" + r.status + ").");
         const d = await r.json();
-        if (!d.length) throw new Error("Kayıt başka bir cihazda değişti. Yenileyip tekrar dene.");
+        if (!d.length) throw new Error("Kayıt yazılamadı. Yenileyip tekrar dene.");
     },
     async list(p, s = true) {
         if (!s)
@@ -342,7 +357,7 @@ function dosyaIndir(blob,name){const u=URL.createObjectURL(blob),a=document.crea
 
 function Kupon() {
     const [ekran, setEkran] = useState("giris");
-    const [sekme, setSekme] = useState("merkez");
+    const [sekme, setSekme] = useState("kupon");
     const [lig, setLig] = useState("");
     const [isim, setIsim] = useState("");
     const [ben, setBen] = useState(null);
