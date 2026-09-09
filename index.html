@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Kupon — Arkadaşlar Arası Futbol Ligi</title>
 <meta name="description" content="Haftalık skor tahminleri, sezonluk takım portföyü ve arkadaşlar arasında futbol rekabeti.">
-<meta name="theme-color" content="#070B12">
+<meta name="theme-color" content="#17140F">
 <!-- Tarayıcı ve ana ekran kısayolu dosyayı önbellekte tutmasın -->
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
@@ -15,9 +15,9 @@
 <meta name="apple-mobile-web-app-title" content="Kupon">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='22' fill='%23070B12'/><text y='72' x='50' text-anchor='middle' font-size='58' font-family='sans-serif' font-weight='bold' fill='%2334D399'>K</text></svg>">
 <style>
-  html,body{margin:0;padding:0;background:#070B12;}
+  html,body{margin:0;padding:0;background:#17140F;}
   #kok{min-height:100vh;}
-  .yukleme{color:#8A94AD;font-family:system-ui,sans-serif;padding:60px 20px;text-align:center;}
+  .yukleme{color:#A89A80;font-family:system-ui,sans-serif;padding:60px 20px;text-align:center;}
 </style>
 </head>
 <body>
@@ -272,12 +272,12 @@ function Yuz({ isim, boy = 42, vurgu = false }) {
     const src = avatarBul(isim);
     const ortak = {
         width: boy, height: boy, borderRadius: "50%", flexShrink: 0,
-        border: vurgu ? "2px solid #34D399" : "1px solid #243149",
-        boxShadow: vurgu ? "0 0 0 3px rgba(16,185,129,.15)" : "none",
+        border: vurgu ? "2px solid #C1401F" : "1px solid #3D3626",
+        boxShadow: vurgu ? "0 0 0 3px rgba(150,49,26,.15)" : "none",
     };
     if (src)
         return React.createElement("img", { src: src, alt: isim, style: { ...ortak, objectFit: "cover", display: "block" } });
-    return (React.createElement("div", { style: { ...ortak, background: "#16202F", color: "#8A94AD", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "'Space Grotesk',sans-serif", fontWeight: 700, fontSize: boy * 0.42 } }, (isim || "?").trim().charAt(0).toUpperCase()));
+    return (React.createElement("div", { style: { ...ortak, background: "#2A241A", color: "#A89A80", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "'Space Grotesk',sans-serif", fontWeight: 700, fontSize: boy * 0.42 } }, (isim || "?").trim().charAt(0).toUpperCase()));
 }
 /* Puanlama */
 function macPuani(tahmin, sonuc) {
@@ -415,6 +415,13 @@ function Kupon() {
     const T = (i) => takimlar[i] || { ad: "?", kod: "?", guc: 60 };
     const islemRef = useRef(false);
     const [sonTeslim, setSonTeslim] = useState("");
+    /* Gazete künyesi tarihi: "CUMA · 11 EYLÜL 2026" */
+    function kunyeTarih() {
+        var gunler = ["PAZAR", "PAZARTESİ", "SALI", "ÇARŞAMBA", "PERŞEMBE", "CUMA", "CUMARTESİ"];
+        var aylar = ["OCAK", "ŞUBAT", "MART", "NİSAN", "MAYIS", "HAZİRAN", "TEMMUZ", "AĞUSTOS", "EYLÜL", "EKİM", "KASIM", "ARALIK"];
+        var d = new Date();
+        return gunler[d.getDay()] + " \u00B7 " + d.getDate() + " " + aylar[d.getMonth()] + " " + d.getFullYear();
+    }
     const [simdi, setSimdi] = useState(Date.now());
     useEffect(() => { const t = setInterval(() => setSimdi(Date.now()), 1000); return () => clearInterval(t); }, []);
     const teslimKapali = !aktif || !Number.isFinite(aktif.sonTeslim) || simdi >= aktif.sonTeslim;
@@ -467,7 +474,12 @@ function Kupon() {
     },[paylasim]);
     useEffect(()=>{setSporDurum({hafta:null,sonuclar:{},zaman:null,hata:'',mesgul:false});setPaylasim(null);setEkGunluk([]);setOzetHafta('');setRakip('');setIstatistikKisi('');},[lig]);
     useEffect(()=>{
-        if(!otomatik || !aktif || ekran!=='oyun')return;
+        /* Maçlar başlamadan sonuç aramanın anlamı yok — hem gereksiz sorgu hem
+           kafa karıştırıyor. Teslim saati geçene kadar hiç çalışmaz.
+           simdi bağımlılığı sayesinde, sekme açık kalıp saat geldiğinde de
+           (sayfa yenilenmeden) kendiliğinden devreye girer. */
+        const baslamis = aktif && Number.isFinite(aktif.sonTeslim) && simdi >= aktif.sonTeslim;
+        if(!otomatik || !aktif || ekran!=='oyun' || !baslamis)return;
         let iptal=false;const controller=new AbortController();
         async function run(){
             if(document.hidden||sporRef.current)return;sporRef.current=true;
@@ -477,7 +489,7 @@ function Kupon() {
         }
         run();const id=setInterval(run,180000);
         return()=>{iptal=true;clearInterval(id);controller.abort();};
-    },[otomatik,aktif&&aktif.hafta,lig,ekran]);
+    },[otomatik,aktif&&aktif.hafta,lig,ekran,aktif&&Number.isFinite(aktif.sonTeslim)&&simdi>=aktif.sonTeslim]);
     function sonucHaritasi(events){
         const map={};for(const o of events){const e=apiEslesme(o.strHomeTeam),d=apiEslesme(o.strAwayTeam),s=KAnaliz.finalScore(o);if(e&&d&&s)map[e+'>'+d]=s;}return map;
     }
@@ -1015,7 +1027,7 @@ function Kupon() {
     /* ================= EK GÖRÜNÜMLER =================
        Hepsi mevcut veriden türetilir; puanlama ve kayıt mantığına dokunmaz. */
 
-    const CIZGI_RENK = ["#34D399", "#F5A524", "#60A5FA", "#F0685A", "#C084FC"];
+    const CIZGI_RENK = ["#C1401F", "#C1401F", "#60A5FA", "#F0685A", "#C084FC"];
 
     /* Hafta hafta biriken kupon puanı — sezon grafiği için */
     const sezonSerisi = useMemo(() => {
@@ -1136,9 +1148,17 @@ function Kupon() {
     }, [tablo]);
     /* ---------- stil ---------- */
     const stil = `
-@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
-.kp{--bg:#070B12;--kat:#111826;--kat2:#16202F;--cizgi:#243149;--fg:#EDF1F7;--sol:#8A94AD;--aksan:#34D399;--aksan2:#10B981;--banko:#F5A524;--kirmizi:#F0564A;--yesil:#2FBF71;
-  background:radial-gradient(1100px 520px at 85% -12%,rgba(16,185,129,.10),transparent 60%),radial-gradient(900px 480px at -15% 28%,rgba(56,132,255,.06),transparent 55%),var(--bg);
+.kp-masthead{display:flex;justify-content:space-between;align-items:baseline;
+  padding-bottom:12px;margin-bottom:14px;border-bottom:3px solid var(--fg);position:relative;}
+.kp-masthead:after{content:"";position:absolute;left:0;right:0;bottom:-5px;height:1px;background:var(--fg);}
+.kp-masthead-tarih{font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:.16em;
+  text-transform:uppercase;color:var(--sol);align-self:flex-end;padding-bottom:4px;}
+.kp-masthead-ad{font-family:'Fraunces',serif;font-style:italic;font-weight:600;font-size:30px;
+  color:var(--fg);letter-spacing:-.01em;line-height:1;}
+
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&family=Fraunces:ital,wght@1,500;1,600&display=swap');
+.kp{--bg:#17140F;--kat:#211D16;--kat2:#2A241A;--cizgi:#3D3626;--fg:#EAE3D3;--sol:#A89A80;--aksan:#C1401F;--aksan2:#96311A;--banko:#C1401F;--kirmizi:#C1401F;--yesil:#C1401F;
+  background:var(--bg);
   color:var(--fg);font-family:Inter,system-ui,sans-serif;min-height:100vh;
   display:flex;flex-direction:column;-webkit-font-smoothing:antialiased;}
 .kp *{box-sizing:border-box;}
@@ -1146,7 +1166,7 @@ function Kupon() {
 .kp-h{font-family:'Space Grotesk',Inter,sans-serif;font-weight:700;letter-spacing:-.02em;line-height:1.05;}
 .kp-ust{position:sticky;top:0;z-index:30;background:rgba(7,11,18,.78);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border-bottom:1px solid var(--cizgi);padding:14px 16px;display:flex;justify-content:space-between;align-items:center;gap:10px;}
 .kp-ic{padding:16px;max-width:620px;margin:0 auto;}
-.kp-kat{background:linear-gradient(180deg,rgba(255,255,255,.028),rgba(255,255,255,0) 42%),var(--kat);border:1px solid var(--cizgi);border-radius:14px;padding:16px;margin-bottom:12px;box-shadow:0 8px 24px rgba(0,0,0,.28);}
+.kp-kat{background:var(--kat);border:1px solid var(--cizgi);border-radius:14px;padding:16px;margin-bottom:12px;box-shadow:0 8px 24px rgba(0,0,0,.28);}
 .kp-et{font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--sol);font-weight:600;margin-bottom:10px;}
 
 /* Kupon kağıdı */
@@ -1154,17 +1174,17 @@ function Kupon() {
   background:
     repeating-linear-gradient(0deg,rgba(0,0,0,.015) 0px,rgba(0,0,0,.015) 1px,transparent 1px,transparent 3px),
     linear-gradient(175deg,#FBF6E9,#F3EBD6);
-  color:#2A2318;border-radius:3px;padding:32px 17px 20px;margin-bottom:12px;
-  box-shadow:0 18px 44px rgba(0,0,0,.5),inset 0 0 0 1px rgba(0,0,0,.06);
+  color:#2A2318;border-radius:5px;padding:32px 17px 20px;margin-bottom:12px;
+  border:2px dashed var(--kirmizi);
+  box-shadow:0 18px 44px rgba(0,0,0,.5);
   font-family:'JetBrains Mono',monospace;}
 .kp-kagit:before,.kp-kagit:after{content:"";position:absolute;left:0;right:0;height:9px;
   background:radial-gradient(circle at 5px 0,transparent 5px,#F3EBD6 5.5px);background-size:11px 9px;}
 .kp-kagit:before{top:-1px;transform:rotate(180deg);}
 .kp-kagit:after{bottom:-1px;}
 .kp-kbas{position:relative;display:flex;justify-content:space-between;font-size:10px;letter-spacing:.14em;
-  text-transform:uppercase;color:#8A7A54;padding:0 0 12px;margin-bottom:10px;}
-.kp-kbas:after{content:"";position:absolute;left:-3px;right:-3px;bottom:0;height:3px;
-  background:repeating-linear-gradient(90deg,var(--kirmizi) 0 6px,transparent 6px 10px);opacity:.85;}
+  text-transform:uppercase;color:#8A7A54;padding:0 0 12px;margin-bottom:10px;
+  border-bottom:1px dashed rgba(42,35,24,.22);}
 .kp-msatir{display:grid;grid-template-columns:28px 1fr auto 1fr 30px;gap:6px;align-items:center;padding:10px 0;border-bottom:1px dotted #D3D8E2;font-size:13px;}
 .kp-msatir:last-child{border-bottom:none;}
 .kp-ev{text-align:right;font-weight:600;}
@@ -1174,7 +1194,7 @@ function Kupon() {
 .kp-sbtn:active{background:#DDE2EA;}
 .kp-skor{font-size:17px;font-weight:700;min-width:20px;text-align:center;}
 .kp-joker{width:28px;height:28px;border-radius:50%;border:1.5px solid #C6CCD9;background:#fff;color:#8B93A6;font-size:11px;font-weight:700;cursor:pointer;font-family:'JetBrains Mono',monospace;transition:all .15s;}
-.kp-joker.on{background:linear-gradient(135deg,#F5A524,#E8871E);border-color:#E8871E;color:#fff;box-shadow:0 3px 10px rgba(245,165,36,.45);}
+.kp-joker.on{background:#C1401F;border-color:#C1401F;color:#EAE3D3;}
 .kp-muhur{position:absolute;right:14px;top:42px;transform:rotate(-9deg);
   border:2px solid var(--kirmizi);outline:1px solid var(--kirmizi);outline-offset:2px;
   color:var(--kirmizi);font-family:'JetBrains Mono',monospace;font-weight:700;font-size:12px;
@@ -1182,148 +1202,148 @@ function Kupon() {
   background:transparent;text-shadow:0 0 .4px var(--kirmizi);
   -webkit-text-stroke:.3px var(--kirmizi);filter:saturate(1.15);}
 
-.kp-dg{background:linear-gradient(135deg,#34D399,#10B981);color:#04211A;border:none;border-radius:12px;padding:15px;font-family:'Space Grotesk',sans-serif;font-size:15px;font-weight:700;cursor:pointer;width:100%;letter-spacing:.01em;box-shadow:0 8px 20px rgba(16,185,129,.28);transition:transform .12s,box-shadow .12s,filter .12s;}
-.kp-dg:hover{filter:brightness(1.06);transform:translateY(-1px);box-shadow:0 10px 24px rgba(16,185,129,.34);}
+.kp-dg{background:#C1401F;color:#EAE3D3;border:none;border-radius:6px;padding:15px;font-family:'Space Grotesk',sans-serif;font-size:15px;font-weight:700;cursor:pointer;width:100%;letter-spacing:.01em;transition:filter .12s;}
+.kp-dg:hover{filter:brightness(1.08);}
 .kp-dg:active{transform:translateY(0);}
 .kp-dg:disabled{background:var(--cizgi);color:var(--sol);cursor:default;box-shadow:none;transform:none;}
 .kp-dg2{background:rgba(255,255,255,.03);color:var(--fg);border:1px solid var(--cizgi);border-radius:12px;padding:12px 14px;font-family:Inter,sans-serif;font-size:13px;font-weight:600;cursor:pointer;transition:border-color .12s,color .12s,background .12s;}
-.kp-dg2:hover{border-color:var(--aksan2);color:var(--aksan);background:rgba(16,185,129,.06);}
+.kp-dg2:hover{border-color:var(--aksan2);color:var(--aksan);background:rgba(150,49,26,.06);}
 .kp-cip{background:var(--kat2);border:1px solid var(--cizgi);color:var(--sol);border-radius:10px;padding:11px 4px;font-size:12px;font-weight:600;cursor:pointer;font-family:'JetBrains Mono',monospace;text-align:center;transition:all .12s;}
-.kp-cip.on{background:linear-gradient(135deg,#34D399,#10B981);border-color:#10B981;color:#04211A;box-shadow:0 4px 12px rgba(16,185,129,.3);}
+.kp-cip.on{background:#C1401F;border-color:#C1401F;color:#EAE3D3;}
 .kp-cip.pas{opacity:.26;cursor:default;}
 .kp-gir{background:var(--kat2);border:1px solid var(--cizgi);color:var(--fg);padding:13px;border-radius:10px;width:100%;font-size:15px;font-family:Inter,sans-serif;transition:border-color .12s;}
-.kp-gir:focus{outline:none;border-color:var(--aksan2);box-shadow:0 0 0 3px rgba(16,185,129,.18);}
+.kp-gir:focus{outline:none;border-color:var(--aksan2);box-shadow:0 0 0 3px rgba(150,49,26,.18);}
 /* Unvan rozeti ve para göstergesi — ayrı görsel sınıflar */
 .kp-unvan{display:inline-flex;align-items:center;font-family:'JetBrains Mono',monospace;
   font-size:9px;font-weight:700;letter-spacing:.09em;padding:3px 8px;border-radius:99px;
   white-space:nowrap;}
-.kp-unvan.iyi{background:rgba(52,211,153,.16);color:#34D399;border:1px solid rgba(52,211,153,.3);}
-.kp-unvan.kotu{background:rgba(240,104,90,.14);color:#F0685A;border:1px solid rgba(240,104,90,.28);}
+.kp-unvan.iyi{background:rgba(193,64,31,.16);color:#C1401F;border:1px solid rgba(193,64,31,.3);}
+.kp-unvan.kotu{background:rgba(193,64,31,.14);color:#F0685A;border:1px solid rgba(193,64,31,.28);}
 .kp-patlican{width:22px;height:22px;border-radius:6px;object-fit:cover;
   box-shadow:0 1px 4px rgba(0,0,0,.35);vertical-align:middle;}
 .kp-banko2x{display:inline-flex;align-items:center;font-family:'JetBrains Mono',monospace;
   font-size:9px;font-weight:700;letter-spacing:.09em;padding:3px 8px;border-radius:99px;
-  white-space:nowrap;background:rgba(245,165,36,.16);color:#F5A524;border:1px solid rgba(245,165,36,.32);}
+  white-space:nowrap;background:rgba(193,64,31,.16);color:#C1401F;border:1px solid rgba(193,64,31,.32);}
 .kp-para{font-family:'JetBrains Mono',monospace;font-size:14px;font-weight:700;
-  color:#EDF1F7;white-space:nowrap;letter-spacing:-.01em;}
-.kp-para.iyi{color:#34D399;}
+  color:#EAE3D3;white-space:nowrap;letter-spacing:-.01em;}
+.kp-para.iyi{color:#C1401F;}
 .kp-para.kotu{color:#F0685A;}
 .kp-sira{display:flex;align-items:center;gap:9px;padding:7px 0;}
 
 /* ---- Sezon grafiği ---- */
-.gr-kut{background:#111826;border:1px solid #243149;border-radius:14px;padding:14px 12px 10px;margin-bottom:12px;}
-.gr-bas{font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:.1em;color:#5F6B85;margin-bottom:10px;padding:0 2px;}
+.gr-kut{background:#211D16;border:1px solid #3D3626;border-radius:14px;padding:14px 12px 10px;margin-bottom:12px;}
+.gr-bas{font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:.1em;color:#7A6F5C;margin-bottom:10px;padding:0 2px;}
 .gr-svg{display:block;width:100%;height:auto;overflow:visible;}
 .gr-ef{display:flex;flex-wrap:wrap;gap:9px;margin-top:11px;padding:0 2px;}
-.gr-ef span{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;color:#C8D2E4;}
+.gr-ef span{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;color:#D8CFB9;}
 .gr-ef i{width:9px;height:3px;border-radius:2px;display:inline-block;}
-.gr-ef b{font-family:'JetBrains Mono',monospace;font-size:11px;color:#8A94AD;font-weight:400;}
+.gr-ef b{font-family:'JetBrains Mono',monospace;font-size:11px;color:#A89A80;font-weight:400;}
 
 /* ---- Portföy karnesi ---- */
 .kn-sat{display:grid;grid-template-columns:42px minmax(0,1fr) auto;gap:10px;align-items:center;
   padding:11px 0;border-bottom:1px solid #1A2333;}
 .kn-sat:last-of-type{border-bottom:none;}
-.kn-kod{font-family:'JetBrains Mono',monospace;font-size:12.5px;font-weight:700;color:#8A94AD;}
-.kn-ad{font-size:14px;color:#EDF1F7;}
-.kn-alt{font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#5F6B85;margin-top:3px;}
+.kn-kod{font-family:'JetBrains Mono',monospace;font-size:12.5px;font-weight:700;color:#A89A80;}
+.kn-ad{font-size:14px;color:#EAE3D3;}
+.kn-alt{font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#7A6F5C;margin-top:3px;}
 .kn-sag{text-align:right;white-space:nowrap;}
 .kn-fark{font-family:'JetBrains Mono',monospace;font-size:15px;font-weight:700;}
-.kn-fark.iyi{color:#34D399;} .kn-fark.kotu{color:#F0685A;} .kn-fark.orta{color:#8A94AD;}
-.kn-puan{font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#5F6B85;margin-top:2px;}
-.kn-tek{font-family:'JetBrains Mono',monospace;font-size:8.5px;font-weight:700;color:#F5A524;
-  border:1px solid rgba(245,165,36,.45);border-radius:4px;padding:1px 4px;margin-left:6px;letter-spacing:.05em;}
+.kn-fark.iyi{color:#C1401F;} .kn-fark.kotu{color:#F0685A;} .kn-fark.orta{color:#A89A80;}
+.kn-puan{font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#7A6F5C;margin-top:2px;}
+.kn-tek{font-family:'JetBrains Mono',monospace;font-size:8.5px;font-weight:700;color:#C1401F;
+  border:1px solid rgba(193,64,31,.45);border-radius:4px;padding:1px 4px;margin-left:6px;letter-spacing:.05em;}
 
 /* ---- Tek bilen rozeti ---- */
 .tk-roz{display:inline-flex;align-items:center;gap:4px;font-family:'JetBrains Mono',monospace;
-  font-size:9px;font-weight:700;color:#F5A524;background:rgba(245,165,36,.14);
-  border:1px solid rgba(245,165,36,.34);border-radius:99px;padding:2px 7px;margin-left:7px;letter-spacing:.05em;}
+  font-size:9px;font-weight:700;color:#C1401F;background:rgba(193,64,31,.14);
+  border:1px solid rgba(193,64,31,.34);border-radius:99px;padding:2px 7px;margin-left:7px;letter-spacing:.05em;}
 
 /* ---- Portföy kurma ekranı ---- */
 .pf-ust{position:sticky;top:0;z-index:30;background:rgba(8,12,20,.97);
   backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);
-  border-bottom:1px solid #243149;padding:12px 16px 13px;}
+  border-bottom:1px solid #3D3626;padding:12px 16px 13px;}
 .pf-slotlar{display:grid;grid-template-columns:repeat(4,1fr);gap:7px;margin-bottom:11px;}
 .pf-slot{height:56px;border-radius:11px;display:flex;flex-direction:column;
   align-items:center;justify-content:center;gap:2px;
   border:1px dashed #2C3B54;background:#0E1523;transition:all .16s;}
-.pf-slot.dolu{border-style:solid;border-color:#10B981;background:rgba(16,185,129,.15);cursor:pointer;}
-.pf-slot-kod{font-family:'JetBrains Mono',monospace;font-size:12.5px;font-weight:700;color:#34D399;}
+.pf-slot.dolu{border-style:solid;border-color:#96311A;background:rgba(150,49,26,.15);cursor:pointer;}
+.pf-slot-kod{font-family:'JetBrains Mono',monospace;font-size:12.5px;font-weight:700;color:#C1401F;}
 .pf-slot-f{font-family:'JetBrains Mono',monospace;font-size:10px;color:#6E7C96;}
 .pf-slot-bos{font-size:19px;color:#2C3B54;line-height:1;}
 .pf-butce{display:flex;align-items:center;gap:10px;}
 .pf-cubuk{flex:1;height:7px;border-radius:99px;background:#182236;overflow:hidden;}
-.pf-cubuk i{display:block;height:100%;border-radius:99px;background:#34D399;
+.pf-cubuk i{display:block;height:100%;border-radius:99px;background:#C1401F;
   transition:width .22s,background .22s;}
-.pf-cubuk.dar i{background:#F5A524;}
-.pf-cubuk.tas i{background:#F0564A;}
-.pf-kalan{font-family:'JetBrains Mono',monospace;font-size:17px;font-weight:700;color:#34D399;
+.pf-cubuk.dar i{background:#C1401F;}
+.pf-cubuk.tas i{background:#C1401F;}
+.pf-kalan{font-family:'JetBrains Mono',monospace;font-size:17px;font-weight:700;color:#C1401F;
   white-space:nowrap;}
-.pf-kalan.dar{color:#F5A524;} .pf-kalan.tas{color:#F0564A;}
+.pf-kalan.dar{color:#C1401F;} .pf-kalan.tas{color:#C1401F;}
 .pf-kalan span{font-size:9.5px;color:#6E7C96;font-weight:600;margin-left:4px;letter-spacing:.06em;}
 
 .pf-kusak{display:flex;align-items:baseline;gap:9px;margin:20px 0 9px;}
 .pf-kusak b{font-family:'Space Grotesk',sans-serif;font-size:12.5px;font-weight:700;
-  color:#C8D2E4;letter-spacing:.05em;text-transform:uppercase;}
+  color:#D8CFB9;letter-spacing:.05em;text-transform:uppercase;}
 .pf-kusak i{flex:1;height:1px;background:#1E2B41;font-style:normal;}
-.pf-kusak em{font-family:'JetBrains Mono',monospace;font-size:10px;color:#5F6B85;font-style:normal;}
+.pf-kusak em{font-family:'JetBrains Mono',monospace;font-size:10px;color:#7A6F5C;font-style:normal;}
 
 .pf-satir{display:grid;grid-template-columns:46px minmax(0,1fr) auto;gap:11px;align-items:center;
-  padding:12px 13px;margin-bottom:7px;border-radius:12px;background:#111826;
-  border:1px solid #243149;transition:border-color .12s,background .12s;
+  padding:12px 13px;margin-bottom:7px;border-radius:12px;background:#211D16;
+  border:1px solid #3D3626;transition:border-color .12s,background .12s;
   -webkit-tap-highlight-color:transparent;}
-.pf-satir.secili{background:rgba(16,185,129,.16);border-color:#10B981;}
+.pf-satir.secili{background:rgba(150,49,26,.16);border-color:#96311A;}
 .pf-satir.kapali{opacity:.4;}
 .pf-satir:not(.kapali){cursor:pointer;}
-.pf-kod{font-family:'JetBrains Mono',monospace;font-weight:700;font-size:13px;color:#8A94AD;}
-.pf-satir.secili .pf-kod{color:#34D399;}
-.pf-ad{font-size:14.5px;font-weight:500;color:#EDF1F7;}
-.pf-alt{font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#5F6B85;margin-top:3px;}
-.pf-sebep{font-family:'JetBrains Mono',monospace;font-size:10px;color:#F0564A;margin-top:3px;}
+.pf-kod{font-family:'JetBrains Mono',monospace;font-weight:700;font-size:13px;color:#A89A80;}
+.pf-satir.secili .pf-kod{color:#C1401F;}
+.pf-ad{font-size:14.5px;font-weight:500;color:#EAE3D3;}
+.pf-alt{font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#7A6F5C;margin-top:3px;}
+.pf-sebep{font-family:'JetBrains Mono',monospace;font-size:10px;color:#C1401F;margin-top:3px;}
 .pf-fiyat{font-family:'JetBrains Mono',monospace;font-weight:700;text-align:right;}
 .pf-fiyat.t1{font-size:19px;color:#F0D375;}
 .pf-fiyat.t2{font-size:17px;color:#D8DEE9;}
 .pf-fiyat.t3{font-size:15px;color:#93A0B8;}
 .pf-fiyat.t4{font-size:14px;color:#66748E;}
-.pf-b4{font-family:'JetBrains Mono',monospace;font-size:9px;font-weight:700;color:#F5A524;
-  border:1px solid rgba(245,165,36,.5);border-radius:4px;padding:2px 5px;margin-left:7px;
+.pf-b4{font-family:'JetBrains Mono',monospace;font-size:9px;font-weight:700;color:#C1401F;
+  border:1px solid rgba(193,64,31,.5);border-radius:4px;padding:2px 5px;margin-left:7px;
   vertical-align:middle;letter-spacing:.06em;}
 
 /* Giriş ekranı görseli */
 .kp-giris-gorsel{position:relative;margin:20px 0 22px;border-radius:16px;overflow:hidden;
-  border:1px solid #243149;background:#0A0F18;}
+  border:1px solid #3D3626;background:#17140F;}
 .kp-giris-gorsel img{display:block;width:100%;height:auto;}
 .kp-giris-gorsel:after{content:"";position:absolute;left:0;right:0;bottom:0;height:38%;
-  background:linear-gradient(to bottom,transparent,rgba(7,11,18,.92));pointer-events:none;}
+  background:linear-gradient(to bottom,transparent,rgba(23,20,15,.94));pointer-events:none;}
 
 /* Hafta satırı: tamamı dokunulabilir */
 .kp-haftabas{padding:12px 8px;margin:0 -8px;border-radius:10px;cursor:pointer;
   -webkit-tap-highlight-color:transparent;transition:background .14s;}
-.kp-haftabas:active{background:rgba(52,211,153,.08);}
+.kp-haftabas:active{background:rgba(193,64,31,.08);}
 
 /* Hafta satırını açan düğme */
 .kp-ac{width:30px;height:30px;flex-shrink:0;border-radius:50%;
   display:flex;align-items:center;justify-content:center;
-  background:rgba(52,211,153,.14);border:1px solid rgba(52,211,153,.34);
-  color:#34D399;font-size:15px;line-height:1;
+  background:rgba(193,64,31,.14);border:1px solid rgba(193,64,31,.34);
+  color:#C1401F;font-size:15px;line-height:1;
   transition:transform .18s,background .18s;transform:rotate(-90deg);}
-.kp-ac.acik{transform:rotate(0deg);background:rgba(52,211,153,.24);}
+.kp-ac.acik{transform:rotate(0deg);background:rgba(193,64,31,.24);}
 
 /* Sezon sonu büyük ödülü */
 .kp-odul{position:relative;border-radius:16px;overflow:hidden;margin-bottom:14px;
   border:1px solid #4A3D14;min-height:190px;display:flex;align-items:flex-end;
-  background:#0A0F18;}
+  background:#17140F;}
 .kp-odul-bg{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;
   object-position:center 62%;}
 /* Metnin okunması için alttan yukarı koyulaşan perde */
 .kp-odul:after{content:"";position:absolute;inset:0;
-  background:linear-gradient(to top,rgba(6,9,15,.96) 0%,rgba(6,9,15,.86) 32%,rgba(6,9,15,.34) 62%,rgba(6,9,15,.12) 100%);}
+  background:linear-gradient(to top,rgba(23,20,15,.96) 0%,rgba(6,9,15,.86) 32%,rgba(6,9,15,.34) 62%,rgba(6,9,15,.12) 100%);}
 .kp-odul-ic{position:relative;z-index:2;padding:16px;width:100%;}
 .kp-odul-bas{font-family:'JetBrains Mono',monospace;font-size:9.5px;letter-spacing:.14em;
   color:#E3C15A;font-weight:700;margin-bottom:4px;}
 .kp-odul-mal{font-family:'Space Grotesk',sans-serif;font-size:22px;font-weight:800;
   color:#F0D375;letter-spacing:-.01em;line-height:1.1;
   text-shadow:0 2px 12px rgba(0,0,0,.75);}
-.kp-odul-hedef{font-size:13px;font-weight:600;color:#8A94AD;letter-spacing:0;}
+.kp-odul-hedef{font-size:13px;font-weight:600;color:#A89A80;letter-spacing:0;}
 .kp-odul-yildiz{font-family:'Space Grotesk',sans-serif;font-size:14px;font-weight:700;
   color:#E3C15A;letter-spacing:.02em;}
 .kp-odul-dip{font-size:10px;color:#7A8299;margin-top:3px;font-style:italic;}
@@ -1339,13 +1359,13 @@ function Kupon() {
   border-top:1px solid #2A3852;display:grid;grid-template-columns:repeat(5,1fr);gap:3px;
   padding:8px 8px calc(8px + env(safe-area-inset-bottom));z-index:40;box-shadow:0 -6px 20px rgba(0,0,0,.45);
   flex-shrink:0;}
-.kp-alt button{position:relative;background:none;border:none;color:#7C879E;padding:11px 2px 13px;
+.kp-alt button{position:relative;background:none;border:none;color:#8C8066;padding:11px 2px 13px;
   font-family:'Space Grotesk',sans-serif;font-size:11px;font-weight:700;letter-spacing:.02em;
   text-transform:uppercase;cursor:pointer;transition:color .14s;}
 .kp-alt button:after{content:"";position:absolute;left:50%;bottom:2px;width:0;height:2px;
   background:var(--aksan);border-radius:2px;transform:translateX(-50%);transition:width .16s ease;}
 .kp-alt button:active{opacity:.7;}
-.kp-alt button.on{color:#EDF1F7;background:rgba(52,211,153,.09);border-radius:10px;}
+.kp-alt button.on{color:#EAE3D3;background:rgba(193,64,31,.09);border-radius:10px;}
 .kp-alt button.on:after{width:20px;}
 .kp :focus-visible{outline:2px solid var(--aksan);outline-offset:2px;}
 .kp-gir{font-size:16px;}
@@ -1371,12 +1391,12 @@ function Kupon() {
 .pr-muted{font-size:13px;line-height:1.65;color:#a5b0c4;margin:8px 0;overflow-wrap:anywhere;}
 .pr-tabs{display:flex;gap:7px;overflow-x:auto;padding:6px 0 16px;}.pr-tabs button{white-space:nowrap;min-height:44px;background:#15202f;color:#bfcadb;border:1px solid #2a3852;border-radius:24px;padding:9px 14px;font:600 12px Inter,system-ui;cursor:pointer;}.pr-tabs button.on{background:#16483b;border-color:#34d399;color:#84f2c5;}
 .pr-label{display:block;font-size:13px;margin:8px 0 16px;color:#bbc6d8;}.pr-label select,.pr-label input{display:block;margin-top:8px;}
-.pr-winner{background:linear-gradient(120deg,#133c32,#111c2a);border:1px solid #28705b;border-radius:18px;padding:24px 20px;margin-bottom:14px;}.pr-winner h2{font-size:28px;line-height:1.25;margin:6px 0;overflow-wrap:anywhere;}.pr-big{font-size:38px;color:#61e7b5;}
-.pr-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin:12px 0;}.pr-metric{padding:17px 14px;background:#111b29;border:1px solid #243149;border-radius:14px;}.pr-metric span,.pr-metric small{display:block;color:#a5b0c4;font-size:12px;line-height:1.5;}.pr-metric strong{display:block;font:700 28px 'Space Grotesk',system-ui;color:#edf1f7;margin:6px 0;}
-.pr-row{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid #243149;font-size:13px;line-height:1.5;}.pr-row span{overflow-wrap:anywhere;}.pr-row strong{flex-shrink:0;}.pr-green{color:#34d399;}
-.pr-versus{display:grid;grid-template-columns:1fr auto 1fr;gap:12px;align-items:center;text-align:center;padding:30px 10px;background:#111b29;border:1px solid #243149;border-radius:16px;}.pr-versus strong{font-size:32px;color:#34d399;}.pr-versus span{font-size:15px;overflow-wrap:anywhere;}
+.pr-winner{background:var(--kat2);border:1px solid #6B3527;border-radius:18px;padding:24px 20px;margin-bottom:14px;}.pr-winner h2{font-size:28px;line-height:1.25;margin:6px 0;overflow-wrap:anywhere;}.pr-big{font-size:38px;color:#61e7b5;}
+.pr-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin:12px 0;}.pr-metric{padding:17px 14px;background:#111b29;border:1px solid #3D3626;border-radius:14px;}.pr-metric span,.pr-metric small{display:block;color:#a5b0c4;font-size:12px;line-height:1.5;}.pr-metric strong{display:block;font:700 28px 'Space Grotesk',system-ui;color:#edf1f7;margin:6px 0;}
+.pr-row{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid #3D3626;font-size:13px;line-height:1.5;}.pr-row span{overflow-wrap:anywhere;}.pr-row strong{flex-shrink:0;}.pr-green{color:#34d399;}
+.pr-versus{display:grid;grid-template-columns:1fr auto 1fr;gap:12px;align-items:center;text-align:center;padding:30px 10px;background:#111b29;border:1px solid #3D3626;border-radius:16px;}.pr-versus strong{font-size:32px;color:#34d399;}.pr-versus span{font-size:15px;overflow-wrap:anywhere;}
 .pr-form{display:flex;gap:8px;}.pr-form>div{flex:1;background:#172637;border-radius:10px;text-align:center;padding:14px 0;}.pr-form strong{display:block;font-size:23px;color:#34d399;}.pr-form span{font-size:10px;color:#a5b0c4;}
-.pr-log{border-top:1px solid #243149;padding:16px 0;font-size:13px;line-height:1.6;}.pr-toggle{display:flex;align-items:center;gap:10px;font-size:14px;line-height:1.6;}.pr-toggle input{width:24px;height:24px;accent-color:#34d399;flex-shrink:0;}
+.pr-log{border-top:1px solid #3D3626;padding:16px 0;font-size:13px;line-height:1.6;}.pr-toggle{display:flex;align-items:center;gap:10px;font-size:14px;line-height:1.6;}.pr-toggle input{width:24px;height:24px;accent-color:#34d399;flex-shrink:0;}
 .pr-actions{display:flex;gap:8px;margin-top:12px;}.pr-actions button{flex:1;}.pr-card-preview{width:100%;height:auto;border-radius:12px;display:block;}.pr-root h2{font-size:21px;}.pr-root h3{font-size:17px;line-height:1.5;}
 .kp button:disabled{opacity:.45;cursor:not-allowed;}.kp-gir{font-size:16px!important;}.kp-kat{overflow-wrap:anywhere;}
 
@@ -1385,36 +1405,36 @@ function Kupon() {
     if (yukleniyor)
         return React.createElement("div", { className: "kp" },
             React.createElement("style", null, stil),
-            React.createElement("div", { className: "kp-ic", style: { paddingTop: 60, color: "#8A94AD" } }, "Y\u00FCkleniyor\u2026"));
-    const Bilgi = () => bilgi ? (React.createElement("div", { style: { background: "#111826", borderBottom: "1px solid #243149", padding: "10px 16px", fontSize: 13, display: "flex", justifyContent: "space-between", gap: 10 } },
+            React.createElement("div", { className: "kp-ic", style: { paddingTop: 60, color: "#A89A80" } }, "Y\u00FCkleniyor\u2026"));
+    const Bilgi = () => bilgi ? (React.createElement("div", { style: { background: "#211D16", borderBottom: "1px solid #3D3626", padding: "10px 16px", fontSize: 13, display: "flex", justifyContent: "space-between", gap: 10 } },
         React.createElement("span", null, bilgi),
-        React.createElement("button", { onClick: () => setBilgi(""), style: { background: "none", border: "none", color: "#8A94AD", cursor: "pointer", fontSize: 17, lineHeight: 1 }, "aria-label": "Kapat" }, "\u00D7"))) : null;
+        React.createElement("button", { onClick: () => setBilgi(""), style: { background: "none", border: "none", color: "#A89A80", cursor: "pointer", fontSize: 17, lineHeight: 1 }, "aria-label": "Kapat" }, "\u00D7"))) : null;
     /* ---------- GİRİŞ ---------- */
     if (ekran === "giris") {
         return (React.createElement("div", { className: "kp" },
             React.createElement("style", null, stil),
             React.createElement("div", { className: "kp-ic", style: { paddingTop: 44 } },
-                React.createElement("div", { className: "kp-h", style: { fontSize: 56, backgroundImage: "linear-gradient(120deg,#EDF1F7 30%,#34D399)", WebkitBackgroundClip: "text", backgroundClip: "text", WebkitTextFillColor: "transparent", color: "#EDF1F7" } }, "KUPON"),
-                React.createElement("div", { className: "kp-mono", style: { fontSize: 11, color: "#8A94AD", letterSpacing: ".16em", marginTop: 8 } }, "HAFTALIK TAHM\u0130N + SEZONLUK PORTF\u00D6Y"),
+                React.createElement("div", { className: "kp-h", style: { fontSize: 56, backgroundImage: "#C1401F", WebkitBackgroundClip: "text", backgroundClip: "text", WebkitTextFillColor: "transparent", color: "#EAE3D3" } }, "KUPON"),
+                React.createElement("div", { className: "kp-mono", style: { fontSize: 11, color: "#A89A80", letterSpacing: ".16em", marginTop: 8 } }, "HAFTALIK TAHM\u0130N + SEZONLUK PORTF\u00D6Y"),
                 React.createElement("div", { className: "kp-giris-gorsel" },
                     React.createElement("img", { src: GIRIS_GORSEL, alt: "Ya\u011Fmurlu stat \u0131\u015F\u0131klar\u0131 alt\u0131nda kupon ka\u011F\u0131d\u0131 ve alt\u0131n k\u00fcl\u00e7e" })),
-                React.createElement("p", { style: { color: "#8A94AD", fontSize: 14, lineHeight: 1.65, margin: 0 } },
+                React.createElement("p", { style: { color: "#A89A80", fontSize: 14, lineHeight: 1.65, margin: 0 } },
                     "Her hafta ma\u00E7lara skor yaz, bir ma\u00E7\u0131 banko se\u00E7. Tam skor 5, do\u011Fru fark 3, do\u011Fru sonu\u00E7 2 puan \u2014 banko ikiye katlar. Sezon ba\u015F\u0131nda ",
                     KREDI,
                     " krediyle 4 tak\u0131m al: onlar\u0131n lig puan\u0131 da senin puan\u0131n."),
                 React.createElement("div", { style: { marginTop: 26 } },
                     React.createElement("div", { className: "kp-et" }, "Grup kodu"),
                     React.createElement("input", { className: "kp-gir kp-mono", value: lig, onChange: e => setLig(e.target.value.toLowerCase().replace(/[^a-z0-9]/g, "")), placeholder: "besikodu", maxLength: 20 }),
-                    React.createElement("div", { style: { fontSize: 11.5, color: "#5F6B85", marginTop: 7 } }, "Ayn\u0131 kodu girenler ayn\u0131 ligde. Gruba bu kodu at.")),
+                    React.createElement("div", { style: { fontSize: 11.5, color: "#7A6F5C", marginTop: 7 } }, "Ayn\u0131 kodu girenler ayn\u0131 ligde. Gruba bu kodu at.")),
                 React.createElement("div", { style: { marginTop: 18 } },
                     React.createElement("div", { className: "kp-et" }, "Ad\u0131n"),
                     React.createElement("input", { className: "kp-gir", value: isim, onChange: e => setIsim(e.target.value), placeholder: "Meto", maxLength: 16 }),
-                    React.createElement("div", { style: { display: "flex", gap: 6, marginTop: 8, flexWrap: "wrap" } }, TAKMA_ADLAR.map(n => (React.createElement("button", { key: n, className: "kp-dg2", style: { padding: "6px 12px 6px 6px", fontSize: 12.5, display: "flex", alignItems: "center", gap: 8, borderColor: isim === n ? "#10B981" : "#243149", color: isim === n ? "#34D399" : "#EDF1F7" }, onClick: () => setIsim(n) },
+                    React.createElement("div", { style: { display: "flex", gap: 6, marginTop: 8, flexWrap: "wrap" } }, TAKMA_ADLAR.map(n => (React.createElement("button", { key: n, className: "kp-dg2", style: { padding: "6px 12px 6px 6px", fontSize: 12.5, display: "flex", alignItems: "center", gap: 8, borderColor: isim === n ? "#96311A" : "#3D3626", color: isim === n ? "#C1401F" : "#EAE3D3" }, onClick: () => setIsim(n) },
                         React.createElement(Yuz, { isim: n, boy: 34, vurgu: isim === n }),
                         n))))),
                 React.createElement("div", { style: { marginTop: 24 } },
                     React.createElement("button", { className: "kp-dg", disabled: !lig.trim() || !isim.trim() || mesgul, onClick: () => girisDene(lig, isim, false) }, mesgul ? "…" : "Devam")),
-                React.createElement("p", { style: { fontSize: 11, color: "#5F6B85", marginTop: 20, lineHeight: 1.6 } }, "Ad\u0131n\u0131 se\u00E7tikten sonra sana \u00F6zel 4 haneli bir PIN belirleyeceksin. Ayn\u0131 telefondan bir daha sorulmaz."))));
+                React.createElement("p", { style: { fontSize: 11, color: "#7A6F5C", marginTop: 20, lineHeight: 1.6 } }, "Ad\u0131n\u0131 se\u00E7tikten sonra sana \u00F6zel 4 haneli bir PIN belirleyeceksin. Ayn\u0131 telefondan bir daha sorulmaz."))));
     }
     /* ---------- PIN ---------- */
     if (ekran === "pin" && pinEkrani) {
@@ -1426,18 +1446,18 @@ function Kupon() {
                     React.createElement(Yuz, { isim: pIsim, boy: 72, vurgu: true }),
                     React.createElement("div", null,
                         React.createElement("div", { className: "kp-h", style: { fontSize: 24 } }, pIsim),
-                        React.createElement("div", { className: "kp-mono", style: { fontSize: 11, color: "#8A94AD", marginTop: 4 } }, pinEkrani.lig.toUpperCase()))),
+                        React.createElement("div", { className: "kp-mono", style: { fontSize: 11, color: "#A89A80", marginTop: 4 } }, pinEkrani.lig.toUpperCase()))),
                 React.createElement("div", { className: "kp-kat" },
                     React.createElement("div", { className: "kp-et" }, yeni ? "PIN belirle" : "PIN gir"),
-                    React.createElement("div", { style: { fontSize: 13.5, color: "#8A94AD", lineHeight: 1.65, marginBottom: 16 } }, yeni
+                    React.createElement("div", { style: { fontSize: 13.5, color: "#A89A80", lineHeight: 1.65, marginBottom: 16 } }, yeni
                         ? "Bu isim ilk kez kullanılıyor. 4 rakamlı bir PIN belirle — bundan sonra bu isimle sadece PIN'i bilen girebilir."
                         : "Bu isim daha önce kullanılmış. Devam etmek için PIN'ini gir."),
                     React.createElement("input", { className: "kp-gir kp-mono", inputMode: "numeric", type: "password", autoComplete: "off", style: { textAlign: "center", fontSize: 26, letterSpacing: ".5em", padding: "14px 0" }, value: pin, placeholder: "\u2022\u2022\u2022\u2022", maxLength: 4, onChange: e => { setPin(e.target.value.replace(/\D/g, "").slice(0, 4)); setPinHata(""); } }),
                     yeni && (React.createElement("input", { className: "kp-gir kp-mono", inputMode: "numeric", type: "password", autoComplete: "off", style: { textAlign: "center", fontSize: 26, letterSpacing: ".5em", padding: "14px 0", marginTop: 10 }, value: pin2, placeholder: "tekrar", maxLength: 4, onChange: e => { setPin2(e.target.value.replace(/\D/g, "").slice(0, 4)); setPinHata(""); } })),
-                    pinHata && React.createElement("div", { style: { color: "#F0564A", fontSize: 13, marginTop: 12, fontWeight: 600 } }, pinHata),
+                    pinHata && React.createElement("div", { style: { color: "#C1401F", fontSize: 13, marginTop: 12, fontWeight: 600 } }, pinHata),
                     React.createElement("button", { className: "kp-dg", style: { marginTop: 16 }, disabled: mesgul || pin.length !== 4 || (yeni && pin2.length !== 4), onClick: pinOnayla }, mesgul ? "…" : yeni ? "PIN'i kaydet ve gir" : "Gir"),
                     React.createElement("button", { className: "kp-dg2", style: { width: "100%", marginTop: 8 }, onClick: () => { setPinEkrani(null); setPin(""); setPin2(""); setPinHata(""); setEkran("giris"); } }, "Geri")),
-                React.createElement("div", { style: { fontSize: 11.5, color: "#5F6B85", lineHeight: 1.65, padding: "0 4px" } }, "PIN'ini unutursan grubu kuran ki\u015Fi Supabase'den kayd\u0131n\u0131 silebilir, yeniden belirlersin."))));
+                React.createElement("div", { style: { fontSize: 11.5, color: "#7A6F5C", lineHeight: 1.65, padding: "0 4px" } }, "PIN'ini unutursan grubu kuran ki\u015Fi Supabase'den kayd\u0131n\u0131 silebilir, yeniden belirlersin."))));
     }
     /* ---------- TAKIM LİSTESİ (ilk kurulum) ---------- */
     if (ekran === "takimlar") {
@@ -1445,12 +1465,12 @@ function Kupon() {
             React.createElement("style", null, stil),
             React.createElement("div", { className: "kp-ust" },
                 React.createElement("div", { className: "kp-h", style: { fontSize: 19 } }, "Lig kadrosu"),
-                React.createElement("div", { className: "kp-mono", style: { fontSize: 11, color: "#8A94AD" } },
+                React.createElement("div", { className: "kp-mono", style: { fontSize: 11, color: "#A89A80" } },
                     takimDuzen.length,
                     " tak\u0131m")),
             React.createElement(Bilgi, null),
             React.createElement("div", { className: "kp-ic" },
-                React.createElement("p", { style: { color: "#8A94AD", fontSize: 13.5, lineHeight: 1.6, marginTop: 0 } }, "Liste 2026-27 S\u00FCper Lig'i. Sa\u011Fdaki say\u0131 tak\u0131m\u0131n ge\u00E7en sezon toplad\u0131\u011F\u0131 ger\u00E7ek puan \u2014 portf\u00F6y fiyat\u0131 buradan hesaplan\u0131yor. Erzurumspor, Amedspor ve \u00C7orum yeni \u00E7\u0131kt\u0131\u011F\u0131 i\u00E7in onlar\u0131nki tahmin (35/34/33)."),
+                React.createElement("p", { style: { color: "#A89A80", fontSize: 13.5, lineHeight: 1.6, marginTop: 0 } }, "Liste 2026-27 S\u00FCper Lig'i. Sa\u011Fdaki say\u0131 tak\u0131m\u0131n ge\u00E7en sezon toplad\u0131\u011F\u0131 ger\u00E7ek puan \u2014 portf\u00F6y fiyat\u0131 buradan hesaplan\u0131yor. Erzurumspor, Amedspor ve \u00C7orum yeni \u00E7\u0131kt\u0131\u011F\u0131 i\u00E7in onlar\u0131nki tahmin (35/34/33)."),
                 takimDuzen.map((t, i) => (React.createElement("div", { key: i, style: { display: "grid", gridTemplateColumns: "1fr 62px 54px", gap: 6, marginBottom: 6 } },
                     React.createElement("input", { className: "kp-gir", style: { padding: 9, fontSize: 13.5 }, value: t.ad, onChange: e => { const y = [...takimDuzen]; y[i] = { ...t, ad: e.target.value }; setTakimDuzen(y); } }),
                     React.createElement("input", { className: "kp-gir kp-mono", style: { padding: 9, fontSize: 13, textAlign: "center" }, value: t.kod, maxLength: 4, onChange: e => { const y = [...takimDuzen]; y[i] = { ...t, kod: e.target.value.toUpperCase() }; setTakimDuzen(y); } }),
@@ -1513,7 +1533,7 @@ function Kupon() {
             React.createElement("div", { className: "pf-ust" },
                 React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 9 } },
                     React.createElement("div", { className: "kp-h", style: { fontSize: 17 } }, "Portf\u00F6y\u00FCn\u00FC kur"),
-                    React.createElement("div", { className: "kp-mono", style: { fontSize: 11, color: "#8A94AD" } }, portfoySecim.length + "/" + PORTFOY_ADET + " tak\u0131m")),
+                    React.createElement("div", { className: "kp-mono", style: { fontSize: 11, color: "#A89A80" } }, portfoySecim.length + "/" + PORTFOY_ADET + " tak\u0131m")),
                 React.createElement("div", { className: "pf-slotlar" },
                     Array.from({ length: PORTFOY_ADET }).map((_, n) => {
                         const idx = portfoySecim[n];
@@ -1532,21 +1552,21 @@ function Kupon() {
                         React.createElement("span", null, "KRED\u0130")))),
             React.createElement(Bilgi, null),
             React.createElement("div", { className: "kp-ic" },
-                React.createElement("details", { style: { background: "#111826", border: "1px solid #243149", borderRadius: 12, padding: "11px 14px", marginBottom: 4 } },
-                    React.createElement("summary", { style: { cursor: "pointer", fontSize: 13, color: "#C8D2E4", fontWeight: 600 } },
+                React.createElement("details", { style: { background: "#211D16", border: "1px solid #3D3626", borderRadius: 12, padding: "11px 14px", marginBottom: 4 } },
+                    React.createElement("summary", { style: { cursor: "pointer", fontSize: 13, color: "#D8CFB9", fontWeight: 600 } },
                         KREDI + " kredi, " + PORTFOY_ADET + " tak\u0131m \u2014 kurallar"),
-                    React.createElement("div", { style: { fontSize: 13, lineHeight: 1.7, color: "#8A94AD", marginTop: 10 } },
+                    React.createElement("div", { style: { fontSize: 13, lineHeight: 1.7, color: "#A89A80", marginTop: 10 } },
                         "B\u00fcy\u00fck 4'ten ",
-                        React.createElement("strong", { style: { color: "#F5A524" } }, "en fazla birini"),
+                        React.createElement("strong", { style: { color: "#C1401F" } }, "en fazla birini"),
                         " alabilirsin. Bir tak\u0131m\u0131 grupta yaln\u0131z sen ald\u0131ysan puan\u0131 ",
-                        React.createElement("strong", { style: { color: "#34D399" } }, "\u00D7" + TEK_SAHIP_CARPAN),
+                        React.createElement("strong", { style: { color: "#C1401F" } }, "\u00D7" + TEK_SAHIP_CARPAN),
                         " say\u0131l\u0131r. Sezon ba\u015F\u0131nda bir kere se\u00E7iliyor, sonra de\u011Fi\u015Fmiyor.",
-                        React.createElement("div", { style: { marginTop: 10, paddingTop: 10, borderTop: "1px solid #243149", fontSize: 12.5 } },
+                        React.createElement("div", { style: { marginTop: 10, paddingTop: 10, borderTop: "1px solid #3D3626", fontSize: 12.5 } },
                             "Fiyatlar ge\u00E7en sezonun ger\u00E7ek puanlar\u0131ndan t\u00FCretildi. B\u00FCt\u00E7eyi tam harcayan her portf\u00F6y\u00FCn beklentisi e\u015Fit \u2014 kazanmak i\u00E7in bir tak\u0131m\u0131n ge\u00E7en seneki puan\u0131n\u0131 a\u015Faca\u011F\u0131na ya da alt\u0131nda kalaca\u011F\u0131na do\u011Fru bahse girmen gerekiyor."),
-                        React.createElement("div", { style: { marginTop: 8, color: "#F5A524", fontSize: 12.5 } }, "Se\u00E7im k\u00F6r: kimse kimsenin portf\u00F6y\u00FCn\u00FC g\u00F6rm\u00FCyor, hepsi herkes kilitleyince a\u00E7\u0131l\u0131yor."))),
-                cikmaz && (React.createElement("div", { className: "kp-kat", style: { borderColor: "#F0564A", background: "rgba(240,86,74,.08)", marginTop: 12 } },
-                    React.createElement("div", { className: "kp-et", style: { color: "#F0564A", marginBottom: 8 } }, "B\u00FCt\u00E7e t\u0131kand\u0131"),
-                    React.createElement("div", { style: { fontSize: 13, lineHeight: 1.65, marginBottom: 12, color: "#8A94AD" } },
+                        React.createElement("div", { style: { marginTop: 8, color: "#C1401F", fontSize: 12.5 } }, "Se\u00E7im k\u00F6r: kimse kimsenin portf\u00F6y\u00FCn\u00FC g\u00F6rm\u00FCyor, hepsi herkes kilitleyince a\u00E7\u0131l\u0131yor."))),
+                cikmaz && (React.createElement("div", { className: "kp-kat", style: { borderColor: "#C1401F", background: "rgba(193,64,31,.08)", marginTop: 12 } },
+                    React.createElement("div", { className: "kp-et", style: { color: "#C1401F", marginBottom: 8 } }, "B\u00FCt\u00E7e t\u0131kand\u0131"),
+                    React.createElement("div", { style: { fontSize: 13, lineHeight: 1.65, marginBottom: 12, color: "#A89A80" } },
                         "Kalan " + kalan + " krediyle portf\u00F6y\u00FC " + PORTFOY_ADET + " tak\u0131ma tamamlayamazs\u0131n. Se\u00E7ti\u011Fin pahal\u0131 tak\u0131mlardan birini \u00E7\u0131kar."),
                     React.createElement("button", { className: "kp-dg2", style: { width: "100%" }, onClick: () => setPortfoySecim([]) }, "Ba\u015Ftan ba\u015Fla"))),
                 KUSAKLAR.map(ku => {
@@ -1584,17 +1604,20 @@ function Kupon() {
     return (React.createElement("div", { className: "kp" },
         React.createElement("style", null, stil),
         React.createElement("div", { className: "kp-ust" },
+            React.createElement("div", { className: "kp-masthead" },
+                React.createElement("span", { className: "kp-masthead-tarih" }, kunyeTarih()),
+                React.createElement("span", { className: "kp-masthead-ad" }, "Kupon")),
             React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 10 } },
                 React.createElement(Yuz, { isim: ben === null || ben === void 0 ? void 0 : ben.isim, boy: 50, vurgu: true }),
                 React.createElement("div", null,
                     React.createElement("div", { className: "kp-h", style: { fontSize: 18 } }, ben === null || ben === void 0 ? void 0 : ben.isim),
-                    React.createElement("div", { className: "kp-mono", style: { fontSize: 10.5, color: "#8A94AD", marginTop: 4 } },
+                    React.createElement("div", { className: "kp-mono", style: { fontSize: 10.5, color: "#A89A80", marginTop: 4 } },
                         lig.toUpperCase(),
                         " \u00B7 ",
                         (tablo === null || tablo === void 0 ? void 0 : tablo.haftalar.length) || 0,
                         " HAFTA OYNANDI"))),
             React.createElement("div", { style: { textAlign: "right" } },
-                React.createElement("div", { className: "kp-mono", style: { fontSize: 20, fontWeight: 700, color: "#34D399" } }, ((tablo === null || tablo === void 0 ? void 0 : tablo.toplam[ben.slug]) || 0) + portfoyPuan(ben.slug)),
+                React.createElement("div", { className: "kp-mono", style: { fontSize: 20, fontWeight: 700, color: "#C1401F" } }, ((tablo === null || tablo === void 0 ? void 0 : tablo.toplam[ben.slug]) || 0) + portfoyPuan(ben.slug)),
                 React.createElement("div", { className: "kp-et", style: { marginBottom: 0, fontSize: 9 } }, "PUAN"))),
         React.createElement(Bilgi, null),
         React.createElement("div", { className: "kp-ic" },
@@ -1606,8 +1629,9 @@ function Kupon() {
                     TeslimAlani(), React.createElement("button", { className: "kp-dg2", disabled: mesgul, onClick: () => guvenliIslem(teslimBelirle) }, "Teslim saatini kaydet"))),
             resmi && resmi.tabloIzi !== KAnaliz.stamp(tablo.haftalar) && React.createElement("div", { className: "kp-kat", role: "status" }, "Resmî puan kaydı eski. Portföy şimdilik girilen maç sonuçlarından hesaplanıyor; eksik maç varsa kurucu resmî puanları güncellemeli."),
             sekme === "merkez" && merkezGorunumu(),
-            sekme === "kupon" && aktif && React.createElement("div",{className:"kp-kat"},
+            sekme === "kupon" && aktif && Number.isFinite(aktif.sonTeslim) && simdi >= aktif.sonTeslim && React.createElement("div",{className:"kp-kat"},
                 React.createElement("div",{className:"kp-et"},"SONUÇ TAKİBİ"),
+                React.createElement("p",{className:"pr-muted",style:{marginTop:0}},"Maçlar sürerken 3 dakikada bir kendiliğinden kontrol edilir. Aşağıdaki düğme anında sormak içindir."),
                 React.createElement("p",{className:"pr-muted"},sporDurum.hafta===aktif.hafta&&sporDurum.zaman?"Son kontrol: "+new Date(sporDurum.zaman).toLocaleTimeString('tr-TR')+(sporDurum.hata?' · Önceki veri gösteriliyor.':''):"Henüz sonuç alınmadı."),
                 sporDurum.hata&&React.createElement("p",{className:"pr-muted",role:"status"},sporDurum.hata),
                 sporDurum.hafta===aktif.hafta&&aktif.maclar.map((m,i)=>{const sn=sporDurum.sonuclar[kodEslesmesi(T(m.e).kod)+'>'+kodEslesmesi(T(m.d).kod)];return sn?React.createElement("div",{className:"pr-row",key:i},T(m.e).kod+' – '+T(m.d).kod,React.createElement("strong",null,sn.join(' – '))):null;}),
@@ -1616,18 +1640,18 @@ function Kupon() {
                 React.createElement("div", { className: "kp-kat" },
                     React.createElement("div", { className: "kp-et" }, "Yeni hafta"),
                     kurucuMu && React.createElement("button",{className:"kp-dg2",disabled:mesgul,onClick:()=>guvenliIslem(fiksturCek),style:{marginBottom:12}},"Güncel fikstür ve saatleri getir"),
-                    hazirCozum && yeniMac.liste.length === 0 && (React.createElement("div", { style: { background: "rgba(16,185,129,.14)", border: "1px solid #10B981", borderRadius: 5, padding: 12, marginBottom: 14 } },
+                    hazirCozum && yeniMac.liste.length === 0 && (React.createElement("div", { style: { background: "rgba(150,49,26,.14)", border: "1px solid #96311A", borderRadius: 5, padding: 12, marginBottom: 14 } },
                         React.createElement("div", { style: { fontSize: 13.5, lineHeight: 1.6, marginBottom: 10 } },
                             gelecekHafta,
                             ". haftanın kayıtlı fikstürü — ",
                             hazir.tarih,
                             ", 9 ma\u00E7."),
                         React.createElement("button", { className: "kp-dg", onClick: () => setYeniMac({ liste: hazirCozum, bekleyen: null }) }, "Fikst\u00FCr\u00FC y\u00FCkle"))),
-                    React.createElement("p", { style: { fontSize: 13.5, color: "#8A94AD", lineHeight: 1.6, margin: "0 0 14px" } },
+                    React.createElement("p", { style: { fontSize: 13.5, color: "#A89A80", lineHeight: 1.6, margin: "0 0 14px" } },
                         hazirCozum && yeniMac.liste.length === 0 ? "Ya da maçları kendin ekle: " : "Maçları ekle: ",
                         "\u00F6nce ev sahibine, sonra deplasman tak\u0131m\u0131na dokun."),
                     React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 5 } }, takimlar.map((t, i) => (React.createElement("button", { key: i, className: `kp-cip ${yeniMac.bekleyen === i ? "on" : ""} ${kullanilan.has(i) && yeniMac.bekleyen !== i ? "pas" : ""}`, disabled: kullanilan.has(i) && yeniMac.bekleyen !== i, onClick: () => takimTikla(i) }, t.kod)))),
-                    yeniMac.bekleyen !== null && (React.createElement("div", { className: "kp-mono", style: { fontSize: 12, color: "#34D399", marginTop: 12 } },
+                    yeniMac.bekleyen !== null && (React.createElement("div", { className: "kp-mono", style: { fontSize: 12, color: "#C1401F", marginTop: 12 } },
                         T(yeniMac.bekleyen).kod,
                         " \u2014 \u015Fimdi rakibine dokun"))),
                 yeniMac.liste.length > 0 && (React.createElement("div", { className: "kp-kat" },
@@ -1637,9 +1661,9 @@ function Kupon() {
                         " fikst\u00FCr\u00FC"),
                     yeniMac.liste.map((m, i) => (React.createElement("div", { key: i, className: "kp-mono", style: { display: "grid", gridTemplateColumns: "1fr 22px 1fr 26px", gap: 6, alignItems: "center", padding: "8px 0", borderBottom: "1px solid #1D2941", fontSize: 13 } },
                         React.createElement("div", { style: { textAlign: "right" } }, T(m.e).ad),
-                        React.createElement("div", { style: { textAlign: "center", color: "#5F6B85" } }, "\u2013"),
+                        React.createElement("div", { style: { textAlign: "center", color: "#7A6F5C" } }, "\u2013"),
                         React.createElement("div", null, T(m.d).ad),
-                        React.createElement("button", { onClick: () => setYeniMac({ ...yeniMac, liste: yeniMac.liste.filter((_, x) => x !== i) }), style: { background: "none", border: "none", color: "#8A94AD", cursor: "pointer", fontSize: 15 }, "aria-label": "Ma\u00E7\u0131 \u00E7\u0131kar" }, "\u00D7")))),
+                        React.createElement("button", { onClick: () => setYeniMac({ ...yeniMac, liste: yeniMac.liste.filter((_, x) => x !== i) }), style: { background: "none", border: "none", color: "#A89A80", cursor: "pointer", fontSize: 15 }, "aria-label": "Ma\u00E7\u0131 \u00E7\u0131kar" }, "\u00D7")))),
                     TeslimAlani(), React.createElement("button", { className: "kp-dg", disabled: !kurucuMu || mesgul, style: { marginTop: 14 }, onClick: () => guvenliIslem(haftayiAc) }, "Haftay\u0131 a\u00E7"))))) : sonucGiris ? (React.createElement(React.Fragment, null,
                 React.createElement("div", { className: "kp-kat" },
                     React.createElement("div", { className: "kp-et" },
@@ -1661,7 +1685,7 @@ function Kupon() {
                         React.createElement("div", { style: { fontSize: 13 } }, T(m.d).ad)))),
                     React.createElement("button", { className: "kp-dg", style: { marginTop: 14 }, disabled: mesgul, onClick: () => guvenliIslem(haftayiKapat) }, mesgul ? "Hesaplanıyor…" : "Haftayı kapat ve puanla"),
                     React.createElement("button", { className: "kp-dg2", style: { width: "100%", marginTop: 8 }, onClick: () => setSonucGiris(null) }, "Vazge\u00E7"),
-                    React.createElement("div", { style: { fontSize: 11.5, color: "#5F6B85", marginTop: 12, lineHeight: 1.6 } },
+                    React.createElement("div", { style: { fontSize: 11.5, color: "#7A6F5C", marginTop: 12, lineHeight: 1.6 } },
                         "Kapat\u0131nca ",
                         veren,
                         " kupon puanlan\u0131r. Kuponunu vermeyen o hafta 0 al\u0131r.")))) : (React.createElement(React.Fragment, null,
@@ -1674,7 +1698,7 @@ function Kupon() {
                         React.createElement("span", { style: { display: "flex", alignItems: "center", gap: 7 } },
                             ben.isim.toUpperCase(),
                             React.createElement("img", { src: avatarBul(ben.isim) || "", alt: "", style: { width: 26, height: 26, borderRadius: "50%", objectFit: "cover", border: "1px solid #C6CCD9", display: avatarBul(ben.isim) ? "block" : "none" } }))),
-                    React.createElement("div", { style: { fontSize: 9.5, color: "#6C7590", letterSpacing: ".1em", paddingBottom: 8, borderBottom: "1px dashed #C6CCD9", marginBottom: 4 } }, "B = BANKO \u00B7 BU MA\u00C7IN PUANI \u0130K\u0130YE KATLANIR"),
+                    React.createElement("div", { style: { fontSize: 9.5, color: "#8C8066", letterSpacing: ".1em", paddingBottom: 8, borderBottom: "1px dashed #C6CCD9", marginBottom: 4 } }, "B = BANKO \u00B7 BU MA\u00C7IN PUANI \u0130K\u0130YE KATLANIR"),
                     aktif.maclar.map((m, i) => {
                         const t = (benimKupon || taslak);
                         if (!t)
@@ -1699,7 +1723,7 @@ function Kupon() {
                             React.createElement("div", { className: "kp-dep" }, T(m.d).kod),
                             React.createElement("div", null)));
                     }),
-                    React.createElement("div", { style: { borderTop: "1px dashed #C6CCD9", marginTop: 10, paddingTop: 9, fontSize: 10, color: "#6C7590", letterSpacing: ".08em", display: "flex", justifyContent: "space-between" } },
+                    React.createElement("div", { style: { borderTop: "1px dashed #C6CCD9", marginTop: 10, paddingTop: 9, fontSize: 10, color: "#8C8066", letterSpacing: ".08em", display: "flex", justifyContent: "space-between" } },
                         React.createElement("span", null, "TAM SKOR 5 \u00B7 FARK 3 \u00B7 SONU\u00C7 2"),
                         React.createElement("span", null,
                             veren,
@@ -1707,14 +1731,14 @@ function Kupon() {
                             oyuncular.length,
                             " KUPON"))),
                 benimKupon ? (React.createElement("div", { className: "kp-kat", style: { textAlign: "center", padding: "14px 16px" } },
-                    React.createElement("div", { style: { fontSize: 13.5, color: "#8A94AD", lineHeight: 1.6 } }, "Kuponun kilitli. Hafta kapan\u0131nca herkesin kuponu birlikte a\u00E7\u0131lacak."))) : kuponOnay ? (React.createElement("div", { className: "kp-kat", style: { borderColor: "#F5A524" } },
-                    React.createElement("div", { className: "kp-et", style: { color: "#F5A524" } }, "Emin misin?"),
+                    React.createElement("div", { style: { fontSize: 13.5, color: "#A89A80", lineHeight: 1.6 } }, "Kuponun kilitli. Hafta kapan\u0131nca herkesin kuponu birlikte a\u00E7\u0131lacak."))) : kuponOnay ? (React.createElement("div", { className: "kp-kat", style: { borderColor: "#C1401F" } },
+                    React.createElement("div", { className: "kp-et", style: { color: "#C1401F" } }, "Emin misin?"),
                     React.createElement("div", { style: { fontSize: 13.5, lineHeight: 1.7, marginBottom: 14 } },
                         "Kupon yat\u0131r\u0131ld\u0131ktan sonra ",
                         React.createElement("strong", null, "de\u011Fi\u015Ftirilemez"),
                         ". Bankon:",
                         " ",
-                        React.createElement("strong", { className: "kp-mono", style: { color: "#F5A524" } },
+                        React.createElement("strong", { className: "kp-mono", style: { color: "#C1401F" } },
                             T(aktif.maclar[taslak.joker].e).kod,
                             " \u2013 ",
                             T(aktif.maclar[taslak.joker].d).kod)),
@@ -1723,19 +1747,19 @@ function Kupon() {
                 React.createElement("div", { className: "kp-kat", style: { marginTop: 12 } },
                     React.createElement("div", { className: "kp-et" }, "Kim yat\u0131rd\u0131"),
                     oyuncular.map(o => (React.createElement("div", { key: o.slug, style: { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", fontSize: 13.5, borderBottom: "1px solid #1D2941" } },
-                        React.createElement("span", { style: { display: "flex", alignItems: "center", gap: 10, color: o.slug === ben.slug ? "#34D399" : "#EDF1F7", opacity: kuponlar[o.slug] ? 1 : .55 } },
+                        React.createElement("span", { style: { display: "flex", alignItems: "center", gap: 10, color: o.slug === ben.slug ? "#C1401F" : "#EAE3D3", opacity: kuponlar[o.slug] ? 1 : .55 } },
                             React.createElement(Yuz, { isim: o.isim, boy: 40, vurgu: !!kuponlar[o.slug] }),
                             o.isim),
-                        React.createElement("span", { className: "kp-mono", style: { fontSize: 12, color: kuponlar[o.slug] ? "#2FBF71" : "#5F6B85" } }, kuponlar[o.slug] ? "yatırdı" : "bekleniyor")))),
+                        React.createElement("span", { className: "kp-mono", style: { fontSize: 12, color: kuponlar[o.slug] ? "#C1401F" : "#7A6F5C" } }, kuponlar[o.slug] ? "yatırdı" : "bekleniyor")))),
                     React.createElement("button", { className: "kp-dg2", style: { width: "100%", marginTop: 12 }, onClick: () => guvenliIslem(() => kuponlariYukle(lig, aktif.hafta, ben.slug)) }, "Yenile")),
                 React.createElement("div", { className: "kp-kat" },
                     React.createElement("div", { className: "kp-et" }, "Hafta bitti mi?"),
                     kurucuMu
                         ? React.createElement(React.Fragment, null,
-                            React.createElement("p", { style: { fontSize: 13, color: "#8A94AD", lineHeight: 1.6, margin: "0 0 12px" } }, "Ma\u00E7lar oynand\u0131ysa sonu\u00E7lar\u0131 gir, herkesin kuponu otomatik puanlan\u0131r."),
+                            React.createElement("p", { style: { fontSize: 13, color: "#A89A80", lineHeight: 1.6, margin: "0 0 12px" } }, "Ma\u00E7lar oynand\u0131ysa sonu\u00E7lar\u0131 gir, herkesin kuponu otomatik puanlan\u0131r."),
                             React.createElement("button", { className: "kp-dg2", style: { width: "100%" }, onClick: () => setSonucGiris(aktif.maclar.map(() => [null, null])) }, "Sonu\u00E7lar\u0131 gir"))
-                        : React.createElement("p", { style: { fontSize: 13, color: "#8A94AD", lineHeight: 1.6, margin: 0 } },
-                            "Sonu\u00E7lar\u0131 ", React.createElement("b", { style: { color: "#EDF1F7" } }, kurucuAdi), " giriyor. Ma\u00E7lar bitince hafta kapan\u0131r ve puanlar burada g\u00f6r\u00fcn\u00fcr.")))))),
+                        : React.createElement("p", { style: { fontSize: 13, color: "#A89A80", lineHeight: 1.6, margin: 0 } },
+                            "Sonu\u00E7lar\u0131 ", React.createElement("b", { style: { color: "#EAE3D3" } }, kurucuAdi), " giriyor. Ma\u00E7lar bitince hafta kapan\u0131r ve puanlar burada g\u00f6r\u00fcn\u00fcr.")))))),
             sekme === "klasman" && (React.createElement(React.Fragment, null,
                 React.createElement("div", { className: "kp-odul" },
                     React.createElement("img", { className: "kp-odul-bg", src: GIRIS_GORSEL, alt: "" }),
@@ -1794,7 +1818,7 @@ function Kupon() {
 
                 portfoyAcik && ben && portfoyKarne(ben.slug) && React.createElement("div", { className: "kp-kat", style: { padding: "12px 14px" } },
                     React.createElement("div", { className: "kp-et", style: { padding: 0 } }, "Portf\u00f6y karnen"),
-                    React.createElement("p", { style: { fontSize: 12, color: "#5F6B85", lineHeight: 1.55, margin: "0 0 6px" } },
+                    React.createElement("p", { style: { fontSize: 12, color: "#7A6F5C", lineHeight: 1.55, margin: "0 0 6px" } },
                         "Her tak\u0131m\u0131n fiyat\u0131 bir beklenti demek. Sa\u011Fdaki say\u0131, o tak\u0131m\u0131n \u015Fu ana kadar beklentisinin ne kadar \u00fcst\u00fcnde ya da alt\u0131nda oldu\u011Funu g\u00f6sterir."),
                     portfoyKarne(ben.slug).map(k => React.createElement("div", { key: k.idx, className: "kn-sat" },
                         React.createElement("span", { className: "kn-kod" }, k.kod),
@@ -1809,25 +1833,25 @@ function Kupon() {
 
                 React.createElement("div", { className: "kp-kat", style: { padding: "12px 10px" } },
                     React.createElement("div", { className: "kp-et", style: { padding: "0 4px" } }, "Genel klasman"),
-                    React.createElement("div", { className: "kp-mono", style: { display: "grid", gridTemplateColumns: "20px 1fr 46px 46px 44px", gap: 6, fontSize: 9.5, color: "#5F6B85", padding: "0 4px 8px", borderBottom: "1px solid #243149", letterSpacing: ".08em" } },
+                    React.createElement("div", { className: "kp-mono", style: { display: "grid", gridTemplateColumns: "20px 1fr 46px 46px 44px", gap: 6, fontSize: 9.5, color: "#7A6F5C", padding: "0 4px 8px", borderBottom: "1px solid #3D3626", letterSpacing: ".08em" } },
                         React.createElement("div", null, "#"),
                         React.createElement("div", null, "OYUNCU"),
                         React.createElement("div", { style: { textAlign: "right" } }, "KUPON"),
                         React.createElement("div", { style: { textAlign: "right" } }, "PORTF\u00D6Y"),
                         React.createElement("div", { style: { textAlign: "right" } }, "TOPLAM")),
-                    klasman.map((k, i) => (React.createElement("div", { key: k.slug, className: "kp-mono", style: { display: "grid", gridTemplateColumns: "20px 1fr 46px 46px 44px", gap: 6, alignItems: "center", padding: "10px 4px", borderBottom: i < klasman.length - 1 ? "1px solid #1D2941" : "none", background: k.slug === ben.slug ? "rgba(16,185,129,.14)" : "transparent" } },
-                        React.createElement("div", { style: { color: i === 0 ? "#34D399" : "#5F6B85", fontWeight: 700, fontSize: 13 } }, i + 1),
+                    klasman.map((k, i) => (React.createElement("div", { key: k.slug, className: "kp-mono", style: { display: "grid", gridTemplateColumns: "20px 1fr 46px 46px 44px", gap: 6, alignItems: "center", padding: "10px 4px", borderBottom: i < klasman.length - 1 ? "1px solid #1D2941" : "none", background: k.slug === ben.slug ? "rgba(150,49,26,.14)" : "transparent" } },
+                        React.createElement("div", { style: { color: i === 0 ? "#C1401F" : "#7A6F5C", fontWeight: 700, fontSize: 13 } }, i + 1),
                         React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 9, minWidth: 0 } },
                             React.createElement(Yuz, { isim: k.isim, boy: 40, vurgu: i === 0 }),
-                            React.createElement("span", { style: { fontFamily: "Inter,sans-serif", fontSize: 14, fontWeight: 600, color: k.slug === ben.slug ? "#34D399" : "#EDF1F7", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } },
+                            React.createElement("span", { style: { fontFamily: "Inter,sans-serif", fontSize: 14, fontWeight: 600, color: k.slug === ben.slug ? "#C1401F" : "#EAE3D3", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } },
                                 k.isim,
-                                kasa[k.slug] > 0 && React.createElement("span", { className: "kp-mono", style: { fontSize: 11, marginLeft: 6, color: "#34D399", fontWeight: 700 } }, paraYaz(kasa[k.slug])))),
-                        React.createElement("div", { style: { textAlign: "right", fontSize: 13, color: "#8A94AD" } }, k.kupon),
-                        React.createElement("div", { style: { textAlign: "right", fontSize: 13, color: "#8A94AD" } }, (portfoyAcik || k.slug === ben.slug) ? k.portfoy : "–"),
+                                kasa[k.slug] > 0 && React.createElement("span", { className: "kp-mono", style: { fontSize: 11, marginLeft: 6, color: "#C1401F", fontWeight: 700 } }, paraYaz(kasa[k.slug])))),
+                        React.createElement("div", { style: { textAlign: "right", fontSize: 13, color: "#A89A80" } }, k.kupon),
+                        React.createElement("div", { style: { textAlign: "right", fontSize: 13, color: "#A89A80" } }, (portfoyAcik || k.slug === ben.slug) ? k.portfoy : "–"),
                         React.createElement("div", { style: { textAlign: "right", fontSize: 16, fontWeight: 700 } }, (portfoyAcik || k.slug === ben.slug) ? k.genel : k.kupon))))),
                 React.createElement("div", { className: "kp-kat" },
                     React.createElement("div", { className: "kp-et" }, "Hafta hafta"),
-                    (!tablo || tablo.haftalar.length === 0) ? (React.createElement("div", { style: { fontSize: 13.5, color: "#8A94AD" } }, "Hen\u00FCz kapanm\u0131\u015F hafta yok.")) : [...tablo.haftalar].reverse().map((h) => {
+                    (!tablo || tablo.haftalar.length === 0) ? (React.createElement("div", { style: { fontSize: 13.5, color: "#A89A80" } }, "Hen\u00FCz kapanm\u0131\u015F hafta yok.")) : [...tablo.haftalar].reverse().map((h) => {
                         const idx = tablo.haftalar.indexOf(h);
                         const acik = acikHafta === idx;
                         return (React.createElement("div", { key: h.no, style: { borderBottom: "1px solid #1D2941" } },
@@ -1847,48 +1871,48 @@ function Kupon() {
                                             React.createElement("span", { className: "kp-para " + (x.unvan === "alim" ? "iyi" : "kotu") }, paraYaz(x.odul)))))),
                                 React.createElement("div", { className: "kp-ac" + (acik ? " acik" : "") }, "▾")),
                             acik && (React.createElement("div", { style: { paddingBottom: 14 } },
-                                (duzeltHafta && duzeltHafta.idx === idx) ? React.createElement("div", { style: { background: "#111826", border: "1px solid #F5A524", borderRadius: 10, padding: "12px", marginBottom: 10 } },
-                                    React.createElement("div", { className: "kp-mono", style: { fontSize: 10, color: "#F5A524", letterSpacing: ".08em", marginBottom: 4 } }, "SKORU D\u00dcZELT"),
-                                    React.createElement("div", { style: { fontSize: 12, color: "#8A94AD", marginBottom: 11, lineHeight: 1.5 } },
+                                (duzeltHafta && duzeltHafta.idx === idx) ? React.createElement("div", { style: { background: "#211D16", border: "1px solid #C1401F", borderRadius: 10, padding: "12px", marginBottom: 10 } },
+                                    React.createElement("div", { className: "kp-mono", style: { fontSize: 10, color: "#C1401F", letterSpacing: ".08em", marginBottom: 4 } }, "SKORU D\u00dcZELT"),
+                                    React.createElement("div", { style: { fontSize: 12, color: "#A89A80", marginBottom: 11, lineHeight: 1.5 } },
                                         "Skoru de\u011Fi\u015Ftirince o haftan\u0131n puanlar\u0131, klasman ve lig tablosu ba\u015Ftan hesaplan\u0131r."),
                                     h.maclar.map((m, i) => React.createElement("div", { key: i, style: { display: "grid", gridTemplateColumns: "1fr 46px 10px 46px 1fr", gap: 5, alignItems: "center", marginBottom: 7 } },
-                                        React.createElement("span", { className: "kp-mono", style: { fontSize: 11.5, textAlign: "right", color: "#C8D2E4" } }, T(m.e).kod),
+                                        React.createElement("span", { className: "kp-mono", style: { fontSize: 11.5, textAlign: "right", color: "#D8CFB9" } }, T(m.e).kod),
                                         React.createElement("input", { type: "number", inputMode: "numeric", min: 0, max: 20, value: duzeltHafta.s[i][0] === null ? "" : duzeltHafta.s[i][0],
                                             onChange: e => { const v = e.target.value; const y = duzeltHafta.s.map(x => [...x]); y[i][0] = v === "" ? null : +v; setDuzeltHafta({ idx, s: y }); },
                                             style: { textAlign: "center", padding: "7px 2px" } }),
-                                        React.createElement("span", { style: { textAlign: "center", color: "#5F6B85" } }, ":"),
+                                        React.createElement("span", { style: { textAlign: "center", color: "#7A6F5C" } }, ":"),
                                         React.createElement("input", { type: "number", inputMode: "numeric", min: 0, max: 20, value: duzeltHafta.s[i][1] === null ? "" : duzeltHafta.s[i][1],
                                             onChange: e => { const v = e.target.value; const y = duzeltHafta.s.map(x => [...x]); y[i][1] = v === "" ? null : +v; setDuzeltHafta({ idx, s: y }); },
                                             style: { textAlign: "center", padding: "7px 2px" } }),
-                                        React.createElement("span", { className: "kp-mono", style: { fontSize: 11.5, color: "#C8D2E4" } }, T(m.d).kod))),
+                                        React.createElement("span", { className: "kp-mono", style: { fontSize: 11.5, color: "#D8CFB9" } }, T(m.d).kod))),
                                     React.createElement("label",{className:"pr-label"},"Düzeltme nedeni",React.createElement("input",{className:"kp-gir",value:duzeltNeden,maxLength:200,onChange:e=>setDuzeltNeden(e.target.value),placeholder:"Örn. Ev sahibi skoru yanlış girilmiş"})),
                                     React.createElement("button", { className: "kp-dg", style: { marginTop: 6 }, disabled: mesgul, onClick: () => guvenliIslem(() => haftaSkorDuzelt(idx, duzeltHafta.s)) }, mesgul ? "Hesaplan\u0131yor\u2026" : "Kaydet ve yeniden hesapla"),
                                     React.createElement("button", { className: "kp-dg2", style: { width: "100%", marginTop: 7 }, onClick: () => setDuzeltHafta(null) }, "Vazge\u00e7"))
                                 : (kurucuMu ? React.createElement("button", { className: "kp-dg2", style: { width: "100%", marginBottom: 10 }, onClick: () => {setDuzeltNeden("");setDuzeltHafta({ idx, s: h.sonuclar.map(x => [...x]) });} }, "Skoru d\u00fczelt") : null),
-                                React.createElement("div", { style: { background: "#111826", borderRadius: 10, padding: "10px 12px", marginBottom: 10 } },
-                                    React.createElement("div", { className: "kp-mono", style: { fontSize: 10, color: "#5F6B85", letterSpacing: ".08em", marginBottom: 8 } }, "HAFTANIN KASASI"),
+                                React.createElement("div", { style: { background: "#211D16", borderRadius: 10, padding: "10px 12px", marginBottom: 10 } },
+                                    React.createElement("div", { className: "kp-mono", style: { fontSize: 10, color: "#7A6F5C", letterSpacing: ".08em", marginBottom: 8 } }, "HAFTANIN KASASI"),
                                     haftaOdul(h).map(x => React.createElement("div", { key: x.slug, className: "kp-sira", style: { borderTop: "1px solid #1A2333" } },
-                                        React.createElement("span", { className: "kp-mono", style: { fontSize: 12, color: "#5F6B85", width: 18, flexShrink: 0 } }, x.sira + "."),
+                                        React.createElement("span", { className: "kp-mono", style: { fontSize: 12, color: "#7A6F5C", width: 18, flexShrink: 0 } }, x.sira + "."),
                                         React.createElement(Yuz, { isim: x.isim, boy: 30, vurgu: x.unvan === "alim" }),
                                         React.createElement("span", { style: { display: "flex", flexDirection: "column", gap: 3, minWidth: 0, flex: 1 } },
-                                            React.createElement("span", { style: { fontSize: 13.5, color: "#EDF1F7", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } },
+                                            React.createElement("span", { style: { fontSize: 13.5, color: "#EAE3D3", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } },
                                                 x.isim,
-                                                x.esit && React.createElement("span", { style: { fontSize: 10, color: "#5F6B85", marginLeft: 6 } }, "e\u015Fit")),
+                                                x.esit && React.createElement("span", { style: { fontSize: 10, color: "#7A6F5C", marginLeft: 6 } }, "e\u015Fit")),
                                             x.unvan && React.createElement("span", { style: { display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" } },
                                                 React.createElement("span", { className: "kp-unvan " + (x.unvan === "alim" ? "iyi" : "kotu") },
                                                     x.unvan === "alim" ? "AL\u0130M ULEMA" : "B\u0130DON D'OR"),
                                                 x.patlican && React.createElement("img", { src: PATLICAN_GORSEL, alt: "patl\u0131can \u00f6d\u00fcl\u00fc", className: "kp-patlican" }),
                                                 x.bankoBonus && React.createElement("span", { className: "kp-banko2x" }, "\u00D72 BANKO"))),
-                                        React.createElement("span", { className: "kp-mono", style: { fontSize: 12, color: "#5F6B85", marginRight: 10, whiteSpace: "nowrap" } }, x.puan + "p"),
+                                        React.createElement("span", { className: "kp-mono", style: { fontSize: 12, color: "#7A6F5C", marginRight: 10, whiteSpace: "nowrap" } }, x.puan + "p"),
                                         React.createElement("span", { className: "kp-para " + (x.unvan === "alim" ? "iyi" : x.unvan === "dallama" ? "kotu" : "") }, paraYaz(x.odul))))),
-                                h.maclar.map((m, i) => (React.createElement("div", { key: i, className: "kp-mono", style: { fontSize: 12, padding: "6px 0", borderTop: "1px dotted #243149" } },
+                                h.maclar.map((m, i) => (React.createElement("div", { key: i, className: "kp-mono", style: { fontSize: 12, padding: "6px 0", borderTop: "1px dotted #3D3626" } },
                                     React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 54px 1fr", gap: 6, alignItems: "center", marginBottom: 5 } },
-                                        React.createElement("div", { style: { textAlign: "right", color: "#EDF1F7" } }, T(m.e).kod),
-                                        React.createElement("div", { style: { textAlign: "center", fontWeight: 700, fontSize: 14, color: "#34D399" } },
+                                        React.createElement("div", { style: { textAlign: "right", color: "#EAE3D3" } }, T(m.e).kod),
+                                        React.createElement("div", { style: { textAlign: "center", fontWeight: 700, fontSize: 14, color: "#C1401F" } },
                                             h.sonuclar[i][0],
                                             " : ",
                                             h.sonuclar[i][1]),
-                                        React.createElement("div", { style: { color: "#EDF1F7" } }, T(m.d).kod)),
+                                        React.createElement("div", { style: { color: "#EAE3D3" } }, T(m.d).kod)),
                                     (function () {
                                         const tk = tekBilen(h, i);
                                         return tk ? React.createElement("div", { style: { textAlign: "center", marginBottom: 6 } },
@@ -1897,7 +1921,7 @@ function Kupon() {
                                     React.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: 5, justifyContent: "center" } }, Object.entries(h.tahminler || {}).map(([s, tah]) => {
                                         var _a, _b, _c, _d, _e;
                                         const p = (_c = (_b = (_a = h.detay) === null || _a === void 0 ? void 0 : _a[s]) === null || _b === void 0 ? void 0 : _b[i]) !== null && _c !== void 0 ? _c : 0;
-                                        return (React.createElement("span", { key: s, style: { fontSize: 10, padding: "3px 6px", borderRadius: 2, background: p >= 5 ? "rgba(47,191,113,.28)" : p > 0 ? "#1D2941" : "transparent", border: `1px solid ${p >= 5 ? "#2FBF71" : "#243149"}`, color: p > 0 ? "#EDF1F7" : "#5F6B85" } },
+                                        return (React.createElement("span", { key: s, style: { fontSize: 10, padding: "3px 6px", borderRadius: 2, background: p >= 5 ? "rgba(47,191,113,.28)" : p > 0 ? "#1D2941" : "transparent", border: `1px solid ${p >= 5 ? "#C1401F" : "#3D3626"}`, color: p > 0 ? "#EAE3D3" : "#7A6F5C" } },
                                             (((_d = h.isimler) === null || _d === void 0 ? void 0 : _d[s]) || s).slice(0, 4),
                                             " ",
                                             tah[i][0],
@@ -1905,31 +1929,31 @@ function Kupon() {
                                             tah[i][1],
                                             ((_e = h.jokerler) === null || _e === void 0 ? void 0 : _e[s]) === i ? " ★" : "",
                                             " ",
-                                            React.createElement("b", { style: { color: p > 0 ? "#34D399" : "#5F6B85" } }, p)));
+                                            React.createElement("b", { style: { color: p > 0 ? "#C1401F" : "#7A6F5C" } }, p)));
                                     }))))),
-                                React.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: 6, marginTop: 12, paddingTop: 10, borderTop: "1px solid #243149" } }, Object.entries(h.puanlar).sort((a, b) => b[1] - a[1]).map(([s, p]) => {
+                                React.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: 6, marginTop: 12, paddingTop: 10, borderTop: "1px solid #3D3626" } }, Object.entries(h.puanlar).sort((a, b) => b[1] - a[1]).map(([s, p]) => {
                                     var _a;
-                                    return (React.createElement("span", { key: s, className: "kp-mono", style: { fontSize: 12, padding: "5px 9px", borderRadius: 3, background: "#16202F", border: "1px solid #243149" } },
+                                    return (React.createElement("span", { key: s, className: "kp-mono", style: { fontSize: 12, padding: "5px 9px", borderRadius: 3, background: "#2A241A", border: "1px solid #3D3626" } },
                                         ((_a = h.isimler) === null || _a === void 0 ? void 0 : _a[s]) || s,
                                         " ",
-                                        React.createElement("b", { style: { color: "#34D399" } }, p)));
+                                        React.createElement("b", { style: { color: "#C1401F" } }, p)));
                                 }))))));
                     })))),
             sekme === "portfoy" && (React.createElement(React.Fragment, null,
-                !portfoyAcik && (React.createElement("div", { className: "kp-kat", style: { borderColor: "#F5A524", background: "rgba(245,165,36,.07)" } },
-                    React.createElement("div", { className: "kp-et", style: { color: "#F5A524" } }, "K\u00F6r se\u00E7im \u00B7 portf\u00F6yler kapal\u0131"),
+                !portfoyAcik && (React.createElement("div", { className: "kp-kat", style: { borderColor: "#C1401F", background: "rgba(193,64,31,.07)" } },
+                    React.createElement("div", { className: "kp-et", style: { color: "#C1401F" } }, "K\u00F6r se\u00E7im \u00B7 portf\u00F6yler kapal\u0131"),
                     React.createElement("div", { style: { fontSize: 13.5, lineHeight: 1.7, marginBottom: 14 } }, "Kimse birbirinin portf\u00F6y\u00FCn\u00FC g\u00F6remiyor. Kay\u0131tl\u0131 herkes portf\u00F6y\u00FCn\u00FC kilitleyince hepsi ayn\u0131 anda a\u00E7\u0131lacak."),
-                    React.createElement("div", { className: "kp-mono", style: { fontSize: 12, marginBottom: 10, color: "#8A94AD" } },
+                    React.createElement("div", { className: "kp-mono", style: { fontSize: 12, marginBottom: 10, color: "#A89A80" } },
                         kilitleyen, "/", beklenenOyuncu,
                         " kilitledi"),
                     oyuncular.map(o => (React.createElement("div", { key: o.slug, style: { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", fontSize: 13.5, borderTop: "1px solid #1D2941" } },
-                        React.createElement("span", { style: { display: "flex", alignItems: "center", gap: 10, color: o.slug === ben.slug ? "#34D399" : "#EDF1F7", opacity: portfoy[o.slug] ? 1 : .55 } },
+                        React.createElement("span", { style: { display: "flex", alignItems: "center", gap: 10, color: o.slug === ben.slug ? "#C1401F" : "#EAE3D3", opacity: portfoy[o.slug] ? 1 : .55 } },
                             React.createElement(Yuz, { isim: o.isim, boy: 40, vurgu: !!portfoy[o.slug] }),
                             o.isim),
-                        React.createElement("span", { className: "kp-mono", style: { fontSize: 12, color: portfoy[o.slug] ? "#2FBF71" : "#5F6B85" } }, portfoy[o.slug] ? "kilitledi" : "bekleniyor")))),
-                    toplamOyuncu < 2 && (React.createElement("div", { style: { fontSize: 12, color: "#5F6B85", marginTop: 12, lineHeight: 1.6 } },
+                        React.createElement("span", { className: "kp-mono", style: { fontSize: 12, color: portfoy[o.slug] ? "#C1401F" : "#7A6F5C" } }, portfoy[o.slug] ? "kilitledi" : "bekleniyor")))),
+                    toplamOyuncu < 2 && (React.createElement("div", { style: { fontSize: 12, color: "#7A6F5C", marginTop: 12, lineHeight: 1.6 } },
                         "Gruba hen\u00FCz ba\u015Fka kimse kat\u0131lmad\u0131. Arkada\u015Flar\u0131n ",
-                        React.createElement("strong", { className: "kp-mono", style: { color: "#34D399" } }, lig),
+                        React.createElement("strong", { className: "kp-mono", style: { color: "#C1401F" } }, lig),
                         " koduyla girsin.")),
                     React.createElement("button", { className: "kp-dg2", style: { width: "100%", marginTop: 14 }, onClick: () => veriYukle(lig, ben.slug) }, "Yenile"))),
                 oyuncular.filter(o => portfoyAcik || o.slug === ben.slug).map(o => {
@@ -1937,25 +1961,25 @@ function Kupon() {
                     if (!p)
                         return (React.createElement("div", { key: o.slug, className: "kp-kat" },
                             React.createElement("div", { style: { fontSize: 15, fontWeight: 600 } }, o.isim),
-                            React.createElement("div", { style: { fontSize: 13, color: "#8A94AD", marginTop: 6 } }, "Hen\u00FCz portf\u00F6y kurmad\u0131.")));
-                    return (React.createElement("div", { key: o.slug, className: "kp-kat", style: { borderColor: o.slug === ben.slug ? "#10B981" : "#243149" } },
+                            React.createElement("div", { style: { fontSize: 13, color: "#A89A80", marginTop: 6 } }, "Hen\u00FCz portf\u00F6y kurmad\u0131.")));
+                    return (React.createElement("div", { key: o.slug, className: "kp-kat", style: { borderColor: o.slug === ben.slug ? "#96311A" : "#3D3626" } },
                         React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 } },
                             React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 10 } },
                                 React.createElement(Yuz, { isim: o.isim, boy: 48, vurgu: o.slug === ben.slug }),
-                                React.createElement("span", { style: { fontSize: 16, fontWeight: 700, color: o.slug === ben.slug ? "#34D399" : "#EDF1F7" } }, o.isim)),
+                                React.createElement("span", { style: { fontSize: 16, fontWeight: 700, color: o.slug === ben.slug ? "#C1401F" : "#EAE3D3" } }, o.isim)),
                             React.createElement("div", { className: "kp-mono", style: { fontSize: 19, fontWeight: 700 } }, portfoyPuan(o.slug))),
                         p.takimlar.map(i => (React.createElement("div", { key: i, className: "kp-mono", style: { display: "grid", gridTemplateColumns: "42px 1fr 34px 34px", gap: 8, alignItems: "center", padding: "8px 0", borderTop: "1px solid #1D2941", fontSize: 12.5 } },
-                            React.createElement("div", { style: { color: "#8A94AD", fontWeight: 600 } }, T(i).kod),
+                            React.createElement("div", { style: { color: "#A89A80", fontWeight: 600 } }, T(i).kod),
                             React.createElement("div", { style: { fontFamily: "Inter,sans-serif", fontSize: 13.5 } },
                                 T(i).ad,
-                                sahipSayisi(i) === 1 && React.createElement("span", { style: { color: "#34D399", fontSize: 10, marginLeft: 6, fontWeight: 700 } },
+                                sahipSayisi(i) === 1 && React.createElement("span", { style: { color: "#C1401F", fontSize: 10, marginLeft: 6, fontWeight: 700 } },
                                     "x",
                                     TEK_SAHIP_CARPAN)),
-                            React.createElement("div", { style: { textAlign: "right", color: "#5F6B85" } },
+                            React.createElement("div", { style: { textAlign: "right", color: "#7A6F5C" } },
                                 fiyat(T(i)),
                                 "k"),
-                            React.createElement("div", { style: { textAlign: "right", fontWeight: 700, color: "#34D399" } }, takimKatki(i))))),
-                        React.createElement("div", { className: "kp-mono", style: { fontSize: 10.5, color: "#5F6B85", marginTop: 9 } },
+                            React.createElement("div", { style: { textAlign: "right", fontWeight: 700, color: "#C1401F" } }, takimKatki(i))))),
+                        React.createElement("div", { className: "kp-mono", style: { fontSize: 10.5, color: "#7A6F5C", marginTop: 9 } },
                             p.harcanan,
                             "/",
                             KREDI,
@@ -1966,8 +1990,8 @@ function Kupon() {
                 React.createElement("div", { className: "kp-et", style: { padding: "0 6px" } },
                     "Lig tablosu \u2014 girilen kupon sonu\u00E7lar\u0131ndan",
                     resmi ? " (portföy resmi puanları kullanıyor)" : ""),
-                ligSirali.length === 0 ? (React.createElement("div", { style: { fontSize: 13.5, color: "#8A94AD", padding: "0 6px" } }, "Hen\u00FCz sonu\u00E7 girilmedi.")) : (React.createElement(React.Fragment, null,
-                    React.createElement("div", { className: "kp-mono", style: { display: "grid", gridTemplateColumns: "20px 1fr 24px 24px 24px 24px 32px 28px", gap: 4, fontSize: 9.5, color: "#5F6B85", padding: "0 6px 8px", borderBottom: "1px solid #243149" } },
+                ligSirali.length === 0 ? (React.createElement("div", { style: { fontSize: 13.5, color: "#A89A80", padding: "0 6px" } }, "Hen\u00FCz sonu\u00E7 girilmedi.")) : (React.createElement(React.Fragment, null,
+                    React.createElement("div", { className: "kp-mono", style: { display: "grid", gridTemplateColumns: "20px 1fr 24px 24px 24px 24px 32px 28px", gap: 4, fontSize: 9.5, color: "#7A6F5C", padding: "0 6px 8px", borderBottom: "1px solid #3D3626" } },
                         React.createElement("div", null, "#"),
                         React.createElement("div", null, "TAKIM"),
                         React.createElement("div", { style: { textAlign: "center" } }, "O"),
@@ -1982,38 +2006,38 @@ function Kupon() {
                             ? Object.entries(portfoy).filter(([, p]) => p.takimlar.includes(s.i)).map(([sl]) => { var _a; return ((_a = oyuncular.find(o => o.slug === sl)) === null || _a === void 0 ? void 0 : _a.isim) || sl; })
                             : (((_a = portfoy[ben.slug]) === null || _a === void 0 ? void 0 : _a.takimlar.includes(s.i)) ? [ben.isim] : []);
                         return (React.createElement("div", { key: s.i, className: "kp-mono", style: { display: "grid", gridTemplateColumns: "20px 1fr 24px 24px 24px 24px 32px 28px", gap: 4, alignItems: "center", padding: "9px 6px", borderBottom: "1px solid #1D2941", fontSize: 12 } },
-                            React.createElement("div", { style: { color: "#5F6B85" } }, i + 1),
+                            React.createElement("div", { style: { color: "#7A6F5C" } }, i + 1),
                             React.createElement("div", { style: { fontFamily: "Inter,sans-serif", fontSize: 12.5, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } },
                                 T(s.i).ad,
-                                sahip.length > 0 && React.createElement("span", { style: { color: "#34D399", fontSize: 10.5 } },
+                                sahip.length > 0 && React.createElement("span", { style: { color: "#C1401F", fontSize: 10.5 } },
                                     " \u00B7 ",
                                     sahip.join(", "))),
-                            React.createElement("div", { style: { textAlign: "center", color: "#8A94AD" } }, s.o),
-                            React.createElement("div", { style: { textAlign: "center", color: "#8A94AD" } }, s.g),
-                            React.createElement("div", { style: { textAlign: "center", color: "#8A94AD" } }, s.b),
-                            React.createElement("div", { style: { textAlign: "center", color: "#8A94AD" } }, s.m),
-                            React.createElement("div", { style: { textAlign: "center", color: "#8A94AD" } },
+                            React.createElement("div", { style: { textAlign: "center", color: "#A89A80" } }, s.o),
+                            React.createElement("div", { style: { textAlign: "center", color: "#A89A80" } }, s.g),
+                            React.createElement("div", { style: { textAlign: "center", color: "#A89A80" } }, s.b),
+                            React.createElement("div", { style: { textAlign: "center", color: "#A89A80" } }, s.m),
+                            React.createElement("div", { style: { textAlign: "center", color: "#A89A80" } },
                                 s.av > 0 ? "+" : "",
                                 s.av),
                             React.createElement("div", { style: { textAlign: "right", fontWeight: 700 } }, s.p)));
                     }))),
-                React.createElement("div", { style: { fontSize: 11, color: "#5F6B85", marginTop: 14, padding: "0 6px", lineHeight: 1.6 } }, "Bu tablo sadece kupona koydu\u011Funuz ma\u00E7lardan olu\u015Fuyor. Bir haftan\u0131n t\u00FCm ma\u00E7lar\u0131n\u0131 eklemezseniz eksik kal\u0131r."),
-                React.createElement("div", { style: { borderTop: "1px solid #243149", marginTop: 16, paddingTop: 16 } },
+                React.createElement("div", { style: { fontSize: 11, color: "#7A6F5C", marginTop: 14, padding: "0 6px", lineHeight: 1.6 } }, "Bu tablo sadece kupona koydu\u011Funuz ma\u00E7lardan olu\u015Fuyor. Bir haftan\u0131n t\u00FCm ma\u00E7lar\u0131n\u0131 eklemezseniz eksik kal\u0131r."),
+                React.createElement("div", { style: { borderTop: "1px solid #3D3626", marginTop: 16, paddingTop: 16 } },
                     React.createElement("div", { className: "kp-et", style: { padding: "0 6px" } }, "Resmi puanlar"),
                     kurucuMu && resmiTaslak ? (React.createElement(React.Fragment, null,
-                        React.createElement("div", { style: { fontSize: 12.5, color: "#8A94AD", padding: "0 6px 12px", lineHeight: 1.6 } }, "TFF'nin tablosuna bak\u0131p her tak\u0131m\u0131n puan\u0131n\u0131 yaz. Bo\u015F b\u0131rakt\u0131\u011F\u0131n tak\u0131m i\u00E7in kupon sonu\u00E7lar\u0131 kullan\u0131lmaya devam eder."),
+                        React.createElement("div", { style: { fontSize: 12.5, color: "#A89A80", padding: "0 6px 12px", lineHeight: 1.6 } }, "TFF'nin tablosuna bak\u0131p her tak\u0131m\u0131n puan\u0131n\u0131 yaz. Bo\u015F b\u0131rakt\u0131\u011F\u0131n tak\u0131m i\u00E7in kupon sonu\u00E7lar\u0131 kullan\u0131lmaya devam eder."),
                         takimlar.map((t, i) => {
                             var _a, _b, _c;
                             return (React.createElement("div", { key: i, style: { display: "grid", gridTemplateColumns: "42px 1fr 62px", gap: 8, alignItems: "center", padding: "6px 6px" } },
-                                React.createElement("div", { className: "kp-mono", style: { fontSize: 12, color: "#8A94AD", fontWeight: 600 } }, t.kod),
+                                React.createElement("div", { className: "kp-mono", style: { fontSize: 12, color: "#A89A80", fontWeight: 600 } }, t.kod),
                                 React.createElement("div", { style: { fontSize: 13.5 } }, t.ad),
                                 React.createElement("input", { inputMode: "numeric", className: "kp-gir kp-mono", style: { padding: "8px 0", textAlign: "center", fontSize: 14 }, value: (_a = resmiTaslak[i]) !== null && _a !== void 0 ? _a : "", placeholder: String((_c = (_b = tablo === null || tablo === void 0 ? void 0 : tablo.ligTablo[i]) === null || _b === void 0 ? void 0 : _b.p) !== null && _c !== void 0 ? _c : 0), onChange: e => setResmiTaslak({ ...resmiTaslak, [i]: e.target.value.replace(/\D/g, "").slice(0, 3) }) })));
                         }),
                         React.createElement("button", { className: "kp-dg", style: { marginTop: 14 }, onClick: () => guvenliIslem(resmiKaydet) }, "Resmi puanlar\u0131 kaydet"),
                         React.createElement("button", { className: "kp-dg2", style: { width: "100%", marginTop: 8 }, onClick: () => setResmiTaslak(null) }, "Vazge\u00E7"))) : resmi ? (React.createElement(React.Fragment, null,
-                        React.createElement("div", { style: { fontSize: 12.5, color: "#8A94AD", padding: "0 6px 12px", lineHeight: 1.6 } },
+                        React.createElement("div", { style: { fontSize: 12.5, color: "#A89A80", padding: "0 6px 12px", lineHeight: 1.6 } },
                             "Portf\u00F6y puanlar\u0131 resmi tablodan hesaplan\u0131yor. Son g\u00FCncelleyen: ",
-                            React.createElement("strong", { style: { color: "#EDF1F7" } }, resmi.guncelleyen),
+                            React.createElement("strong", { style: { color: "#EAE3D3" } }, resmi.guncelleyen),
                             " \u00B7 ",
                             new Date(resmi.zaman).toLocaleDateString("tr-TR")),
                         takimlar.map((t, i) => {
@@ -2023,26 +2047,26 @@ function Kupon() {
                                 return null;
                             const k = (_c = (_b = tablo === null || tablo === void 0 ? void 0 : tablo.ligTablo[i]) === null || _b === void 0 ? void 0 : _b.p) !== null && _c !== void 0 ? _c : 0;
                             return (React.createElement("div", { key: i, className: "kp-mono", style: { display: "grid", gridTemplateColumns: "42px 1fr 46px 46px", gap: 8, alignItems: "center", padding: "7px 6px", borderTop: "1px solid #1D2941", fontSize: 12.5 } },
-                                React.createElement("div", { style: { color: "#8A94AD", fontWeight: 600 } }, t.kod),
+                                React.createElement("div", { style: { color: "#A89A80", fontWeight: 600 } }, t.kod),
                                 React.createElement("div", { style: { fontFamily: "Inter,sans-serif", fontSize: 13 } }, t.ad),
-                                React.createElement("div", { style: { textAlign: "right", color: r !== k ? "#F0564A" : "#5F6B85" } }, k),
-                                React.createElement("div", { style: { textAlign: "right", fontWeight: 700, color: "#34D399" } }, r)));
+                                React.createElement("div", { style: { textAlign: "right", color: r !== k ? "#C1401F" : "#7A6F5C" } }, k),
+                                React.createElement("div", { style: { textAlign: "right", fontWeight: 700, color: "#C1401F" } }, r)));
                         }),
-                        React.createElement("div", { className: "kp-mono", style: { fontSize: 10, color: "#5F6B85", padding: "10px 6px 0", display: "flex", justifyContent: "flex-end", gap: 12 } },
+                        React.createElement("div", { className: "kp-mono", style: { fontSize: 10, color: "#7A6F5C", padding: "10px 6px 0", display: "flex", justifyContent: "flex-end", gap: 12 } },
                             React.createElement("span", null, "KUPONDAN"),
-                            React.createElement("span", { style: { color: "#34D399" } }, "RESM\u0130")),
+                            React.createElement("span", { style: { color: "#C1401F" } }, "RESM\u0130")),
                         React.createElement("button", { className: "kp-dg2", style: { width: "100%", marginTop: 14 }, disabled: !kurucuMu || mesgul, onClick: () => setResmiTaslak({ ...resmi.puanlar }) }, "Puanlar\u0131 g\u00FCncelle"),
                         React.createElement("button", { className: "kp-dg2", style: { width: "100%", marginTop: 8 }, disabled: !kurucuMu || mesgul, onClick: () => guvenliIslem(resmiSil) }, "Resmi puanlar\u0131 sil"))) : (React.createElement(React.Fragment, null,
-                        React.createElement("div", { style: { fontSize: 12.5, color: "#8A94AD", padding: "0 6px 12px", lineHeight: 1.6 } }, "Erteleme ma\u00E7lar\u0131 ve atlanan haftalar y\u00FCz\u00FCnden yukar\u0131daki tablo ger\u00E7ek puanlardan sapabilir. Ayda bir TFF'nin tablosuna bak\u0131p 18 tak\u0131m\u0131n puan\u0131n\u0131 buraya yaz\u0131n \u2014 portf\u00F6y puanlar\u0131 o andan itibaren buradan hesaplan\u0131r. Kupon puanlar\u0131 etkilenmez."),
+                        React.createElement("div", { style: { fontSize: 12.5, color: "#A89A80", padding: "0 6px 12px", lineHeight: 1.6 } }, "Erteleme ma\u00E7lar\u0131 ve atlanan haftalar y\u00FCz\u00FCnden yukar\u0131daki tablo ger\u00E7ek puanlardan sapabilir. Ayda bir TFF'nin tablosuna bak\u0131p 18 tak\u0131m\u0131n puan\u0131n\u0131 buraya yaz\u0131n \u2014 portf\u00F6y puanlar\u0131 o andan itibaren buradan hesaplan\u0131r. Kupon puanlar\u0131 etkilenmez."),
                         React.createElement("button", { className: "kp-dg2", style: { width: "100%" }, disabled: !kurucuMu || mesgul, onClick: () => setResmiTaslak({}) }, "Resmi puanlar\u0131 gir")))),
                 React.createElement("button", { className: "kp-dg2", style: { width: "100%", marginTop: 20 }, onClick: () => { setEkran("giris"); setBen(null); setKurulum(null); setAktif(null); setTablo(null); setResmi(null); } }, "Ba\u015Fka gruba ge\u00E7")))),
-        React.createElement("div", { style: { textAlign: "center", padding: "18px 0 90px", fontSize: 10.5, color: "#4A5570", fontFamily: "'JetBrains Mono',monospace" } }, "sürüm " + SURUM),
+        React.createElement("div", { style: { textAlign: "center", padding: "18px 0 90px", fontSize: 10.5, color: "#6B6151", fontFamily: "'JetBrains Mono',monospace" } }, "sürüm " + SURUM),
         React.createElement("nav", { className: "kp-alt" }, [["merkez", "Merkez"], ["kupon", "Kupon"], ["klasman", "Klasman"], ["portfoy", "Portföy"], ["lig", "Lig"]].map(([k, l]) => (React.createElement("button", { key: k, className: sekme === k ? "on" : "", onClick: () => setSekme(k) }, l))))));
 }
 
 window.addEventListener("error", function (e) {
   document.getElementById("kok").innerHTML =
-    '<div class="yukleme">Bir hata oluştu:<br><br><code style="color:#F0564A">' +
+    '<div class="yukleme">Bir hata oluştu:<br><br><code style="color:#C1401F">' +
     (e.message || "bilinmeyen") + "</code></div>";
 });
 ReactDOM.createRoot(document.getElementById("kok")).render(React.createElement(Kupon));
