@@ -27,6 +27,20 @@
 <script>
 "use strict";
 const { useState, useEffect, useMemo, useRef } = React;
+class HataSiniri extends React.Component {
+    constructor(props) { super(props); this.state = { hata: null }; }
+    static getDerivedStateFromError(hata) { return { hata }; }
+    componentDidCatch(hata, bilgi) { console.error("Kupon arayüz hatası", hata, bilgi); }
+    render() {
+        if (!this.state.hata) return this.props.children;
+        return React.createElement("div", { className: "yukleme", role: "alert" },
+            React.createElement("strong", null, "Ekran hazırlanamadı."),
+            React.createElement("br"), React.createElement("br"),
+            React.createElement("span", null, "Verileriniz güvende. Sayfayı yenileyip tekrar deneyin."),
+            React.createElement("br"), React.createElement("br"),
+            React.createElement("button", { onClick: () => location.reload(), style: { padding: "10px 16px", cursor: "pointer" } }, "Sayfayı yenile"));
+    }
+}
 /* ============================================================
    KUPON — haftalık skor tahmini + sezonluk takım portföyü
    ============================================================ */
@@ -574,7 +588,11 @@ function Kupon() {
         const kur = (ku === null || ku === void 0 ? void 0 : ku.value) ? JSON.parse(ku.value) : null;
         const akt = (ak === null || ak === void 0 ? void 0 : ak.value) ? JSON.parse(ak.value) : null;
         const tbl = (tb === null || tb === void 0 ? void 0 : tb.value) ? JSON.parse(tb.value) : { toplam: {}, haftalar: [], ligTablo: {} };
-        const pfy = (pf === null || pf === void 0 ? void 0 : pf.value) ? JSON.parse(pf.value) : {};
+        const hamPfy = (pf === null || pf === void 0 ? void 0 : pf.value) ? JSON.parse(pf.value) : {};
+        const pfy = Object.fromEntries(Object.entries(hamPfy && typeof hamPfy === "object" ? hamPfy : {}).map(([s, p]) => [s, {
+            ...(p && typeof p === "object" ? p : {}),
+            takimlar: Array.isArray(p?.takimlar) ? p.takimlar.map(Number).filter(Number.isInteger) : []
+        }]));
         const rsm = (rs === null || rs === void 0 ? void 0 : rs.value) ? JSON.parse(rs.value) : null;
         setKurulum(kur);
         const etkin=akt && !tbl.haftalar.some(h=>h.no===akt.hafta) ? akt : null;
@@ -942,7 +960,7 @@ function Kupon() {
             depo.set(`kpn:${lig}:portfoyAcik`, "1").catch(() => { });
         }
     }, [hepsiKilitli, portfoyAcik, lig]);
-    const sahipSayisi = (i) => Object.values(portfoy).filter(p => p.takimlar.includes(+i)).length;
+    const sahipSayisi = (i) => Object.values(portfoy).filter(p => Array.isArray(p?.takimlar) && p.takimlar.includes(+i)).length;
     const takimKatki = (i) => {
         const b = takimPuan(i);
         return sahipSayisi(i) === 1 ? Math.round(b * TEK_SAHIP_CARPAN) : b;
@@ -1873,7 +1891,7 @@ function Kupon() {
                                 React.createElement(Yuz, { isim: o.isim, boy: 48, vurgu: o.slug === ben.slug }),
                                 React.createElement("span", { style: { fontSize: 16, fontWeight: 700, color: o.slug === ben.slug ? "#34D399" : "#EDF1F7" } }, o.isim)),
                             React.createElement("div", { className: "kp-mono", style: { fontSize: 19, fontWeight: 700 } }, portfoyPuan(o.slug))),
-                        p.takimlar.map(i => (React.createElement("div", { key: i, className: "kp-mono", style: { display: "grid", gridTemplateColumns: "42px 1fr 34px 34px", gap: 8, alignItems: "center", padding: "8px 0", borderTop: "1px solid #1D2941", fontSize: 12.5 } },
+                        (Array.isArray(p.takimlar) ? p.takimlar : []).map(i => (React.createElement("div", { key: i, className: "kp-mono", style: { display: "grid", gridTemplateColumns: "42px 1fr 34px 34px", gap: 8, alignItems: "center", padding: "8px 0", borderTop: "1px solid #1D2941", fontSize: 12.5 } },
                             React.createElement("div", { style: { color: "#8A94AD", fontWeight: 600 } }, T(i).kod),
                             React.createElement("div", { style: { fontFamily: "Inter,sans-serif", fontSize: 13.5 } },
                                 T(i).ad,
@@ -1908,8 +1926,8 @@ function Kupon() {
                     ligSirali.map((s, i) => {
                         var _a;
                         const sahip = portfoyAcik
-                            ? Object.entries(portfoy).filter(([, p]) => p.takimlar.includes(s.i)).map(([sl]) => { var _a; return ((_a = oyuncular.find(o => o.slug === sl)) === null || _a === void 0 ? void 0 : _a.isim) || sl; })
-                            : (((_a = portfoy[ben.slug]) === null || _a === void 0 ? void 0 : _a.takimlar.includes(s.i)) ? [ben.isim] : []);
+                            ? Object.entries(portfoy).filter(([, p]) => Array.isArray(p?.takimlar) && p.takimlar.includes(s.i)).map(([sl]) => { var _a; return ((_a = oyuncular.find(o => o.slug === sl)) === null || _a === void 0 ? void 0 : _a.isim) || sl; })
+                            : ((Array.isArray((_a = portfoy[ben.slug]) === null || _a === void 0 ? void 0 : _a.takimlar) && portfoy[ben.slug].takimlar.includes(s.i)) ? [ben.isim] : []);
                         return (React.createElement("div", { key: s.i, className: "kp-mono", style: { display: "grid", gridTemplateColumns: "20px 1fr 24px 24px 24px 24px 32px 28px", gap: 4, alignItems: "center", padding: "9px 6px", borderBottom: "1px solid #1D2941", fontSize: 12 } },
                             React.createElement("div", { style: { color: "#5F6B85" } }, i + 1),
                             React.createElement("div", { style: { fontFamily: "Inter,sans-serif", fontSize: 12.5, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } },
@@ -1970,11 +1988,17 @@ function Kupon() {
 }
 
 window.addEventListener("error", function (e) {
-  document.getElementById("kok").innerHTML =
-    '<div class="yukleme">Bir hata oluştu:<br><br><code style="color:#F0564A">' +
-    (e.message || "bilinmeyen") + "</code></div>";
+    // Tarayıcı eklentileri ve çapraz kaynaklar ayrıntısız "Script error." üretebilir.
+    // Bunlar uygulamayı silmemeli; gerçek React hatalarını HataSiniri gösterir.
+    if (!e.error || !e.message || e.message === "Script error.") {
+        console.warn("Uygulama dışı betik hatası yok sayıldı:", e.message || e.type);
+        return;
+    }
+    console.error("Yakalanmamış uygulama hatası:", e.error);
 });
-ReactDOM.createRoot(document.getElementById("kok")).render(React.createElement(Kupon));
+ReactDOM.createRoot(document.getElementById("kok")).render(
+    React.createElement(HataSiniri, null, React.createElement(Kupon))
+);
 </script>
 </body>
 </html>
