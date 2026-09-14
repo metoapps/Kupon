@@ -1,0 +1,3940 @@
+// @ts-nocheck
+"use client";
+import React, { useState, useEffect, useMemo, useRef } from "react";
+
+/* ============================================================
+   KUPON — haftalık skor tahmini + sezonluk takım portföyü
+   ============================================================ */
+/*
+KUPON 2.0 — GitHub Pages için tek HTML.
+Mevcut kpn:* kayıtlarını kullanır; şema sıfırlamaz.
+Bu sürümde: Merkez, haftalık özet, ikili rekabet, istatistik, PNG kart,
+işlem geçmişi, arşiv indirme, tamamlanmış maç kontrolü, fikstür aktarımı.
+Sonuç servisi: https://www.thesportsdb.com/docs_api_guide
+Maç durumları: https://www.thesportsdb.com/docs_api_data
+Tarayıcı açıkken 3 dakikada bir salt okunur kontrol; kurucu sonuçları onaylar.
+Sunucu kurulumu olmadan PIN/RLS, gizli seçimler ve güvenilir sunucu saati
+koruması tamamlanmış değildir. Publishable anahtar gizli anahtar değildir;
+service_role veya özel API anahtarını bu HTML'ye kesinlikle eklemeyin.
+Güvenli sürüm için: sunucuda oturum ve üyelik doğrulaması, kayıt sahibine
+bağlı RLS, kurucuya özel işlem yetkileri, server-time deadline kontrolü,
+gizli tahminler için kontrollü RPC ve değiştirilemez audit kaydı kurulmalıdır.
+Bu kontroller mevcut veritabanı şeması ve izinleri incelenmeden uygulanmamalıdır.
+*/
+const SB_URL = "https://ovryjrniokyxiwesfsqw.supabase.co";
+const SB_KEY = "sb_publishable_Az3DBJigt3wDr_2hFktmoQ_SHULfUxi";
+const SB_BASLIK = { apikey: SB_KEY, Authorization: "Bearer " + SB_KEY, "Content-Type": "application/json" };
+const MISAFIR = /(^|[?&#])misafir(=|&|$)/.test((typeof location !== "undefined" ? (location.search + location.hash) : ""));
+function misafirLigOku() {
+    try {
+        const s = String(location.search || "").replace(/^\?/, "");
+        const h = String(location.hash || "").replace(/^#\/?/, "").replace(/^\?/, "");
+        const q = new URLSearchParams(s + (s && h ? "&" : "") + h);
+        return String(q.get("lig") || q.get("grup") || "").toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 20);
+    } catch (e) { return ""; }
+}
+const depo = {
+    async get(k, s = true) {
+        if (!s) {
+            const v = localStorage.getItem(k);
+            return v === null ? null : { key: k, value: v, shared: false };
+        }
+        const r = await fetch(SB_URL + "/rest/v1/kupon_veri?select=deger&anahtar=eq." + encodeURIComponent(k), { headers: SB_BASLIK });
+        if (!r.ok)
+            throw new Error("okuma hatasi " + r.status);
+        const d = await r.json();
+        return d.length ? { key: k, value: d[0].deger, shared: true } : null;
+    },
+    async set(k, v, s = true) {
+        if (MISAFIR) throw new Error("Misafir görünümü salt okunur.");
+        if (!s) {
+            localStorage.setItem(k, v);
+            return { key: k, value: v, shared: false };
+        }
+        const r = await fetch(SB_URL + "/rest/v1/kupon_veri", {
+            method: "POST",
+            headers: Object.assign({}, SB_BASLIK, { Prefer: "resolution=merge-duplicates,return=minimal" }),
+            body: JSON.stringify({ anahtar: k, deger: v, guncelleme: new Date().toISOString() }),
+        });
+        if (!r.ok)
+            throw new Error("yazma hatasi " + r.status);
+        return { key: k, value: v, shared: true };
+    },
+    async kosulluSet(k, v, onceki) {
+        if (MISAFIR) throw new Error("Misafir görünümü salt okunur.");
+        const yeni = onceki === null || onceki === undefined;
+        const ham = yeni ? null : (typeof onceki === "string" ? onceki : JSON.stringify(onceki));
+        const filtre = yeni
+            ? ""
+            : "?anahtar=eq." + encodeURIComponent(k) + "&deger=eq." + encodeURIComponent(ham);
+        const r = await fetch(SB_URL + "/rest/v1/kupon_veri" + filtre, {
+            method: yeni ? "POST" : "PATCH",
+            headers: { ...SB_BASLIK, Prefer: "return=representation" },
+            body: JSON.stringify(yeni
+                ? { anahtar: k, deger: v, guncelleme: new Date().toISOString() }
+                : { deger: v, guncelleme: new Date().toISOString() }),
+        });
+        if (!r.ok) throw new Error(r.status === 409 ? "Kayıt başka bir cihazda değişti. Yenileyip tekrar dene." : "Kayıt tamamlanamadı (" + r.status + ").");
+        const d = await r.json();
+        if (d.length) return;
+        if (yeni) throw new Error("Kayıt başka bir cihazda değişti. Yenileyip tekrar dene.");
+        const simdi = await depo.get(k);
+        if (!simdi || simdi.value !== ham) throw new Error("Kayıt başka bir cihazda değişti. Yenileyip tekrar dene.");
+        const r2 = await fetch(SB_URL + "/rest/v1/kupon_veri?anahtar=eq." + encodeURIComponent(k), {
+            method: "PATCH",
+            headers: { ...SB_BASLIK, Prefer: "return=representation" },
+            body: JSON.stringify({ deger: v, guncelleme: new Date().toISOString() }),
+        });
+        if (!r2.ok) throw new Error("Kayıt tamamlanamadı (" + r2.status + ").");
+        const d2 = await r2.json();
+        if (!d2.length) throw new Error("Kayıt başka bir cihazda değişti. Yenileyip tekrar dene.");
+    },
+    async list(p, s = true) {
+        if (!s)
+            return { keys: Object.keys(localStorage).filter(x => x.startsWith(p)), shared: false };
+        const r = await fetch(SB_URL + "/rest/v1/kupon_veri?select=anahtar&anahtar=like." + encodeURIComponent(p + "*"), { headers: SB_BASLIK });
+        if (!r.ok)
+            throw new Error("liste hatasi " + r.status);
+        const d = await r.json();
+        return { keys: d.map(x => x.anahtar), shared: true };
+    },
+    async getMany(keys) {
+        if (!keys || !keys.length)
+            return [];
+        const out = [];
+        for (let i = 0; i < keys.length; i += 50) {
+            const chunk = keys.slice(i, i + 50);
+            const listed = chunk.map(k => '"' + String(k).replace(/\\/g, "\\\\").replace(/"/g, '\\"') + '"').join(",");
+            const r = await fetch(SB_URL + "/rest/v1/kupon_veri?select=anahtar,deger&anahtar=in.(" + listed + ")", { headers: SB_BASLIK });
+            if (!r.ok)
+                throw new Error("okuma hatasi " + r.status);
+            const d = await r.json();
+            for (const row of d)
+                out.push({ key: row.anahtar, value: row.deger, shared: true });
+        }
+        return out;
+    },
+};
+function okuJSON(v, yedek) {
+    if (v == null || v === "")
+        return yedek;
+    try {
+        return JSON.parse(v);
+    }
+    catch (e) {
+        return yedek;
+    }
+}
+/* Takım listesi — "gp" = 2025-26 sezonunda toplanan gerçek puan.
+   Yeni çıkan üçlü için tahmin (geçen sezon çıkan üçlü 37/34/30 almıştı). */
+const VARSAYILAN_TAKIMLAR = [
+    { ad: "Galatasaray", kod: "GS", gp: 77 },
+    { ad: "Fenerbahçe", kod: "FB", gp: 74 },
+    { ad: "Trabzonspor", kod: "TS", gp: 69 },
+    { ad: "Beşiktaş", kod: "BJK", gp: 60 },
+    { ad: "Başakşehir", kod: "IBFK", gp: 57 },
+    { ad: "Göztepe", kod: "GÖZ", gp: 55 },
+    { ad: "Samsunspor", kod: "SAM", gp: 51 },
+    { ad: "Ç. Rizespor", kod: "RİZ", gp: 41 },
+    { ad: "Konyaspor", kod: "KON", gp: 40 },
+    { ad: "Alanyaspor", kod: "ALA", gp: 37 },
+    { ad: "Kocaelispor", kod: "KOC", gp: 37 },
+    { ad: "Gaziantep FK", kod: "GFK", gp: 37 },
+    { ad: "Kasımpaşa", kod: "KSM", gp: 35 },
+    { ad: "Gençlerbirliği", kod: "GNÇ", gp: 34 },
+    { ad: "Eyüpspor", kod: "EYP", gp: 33 },
+    { ad: "Erzurumspor", kod: "ERZ", gp: 35, yeni: true },
+    { ad: "Amedspor", kod: "AMD", gp: 34, yeni: true },
+    { ad: "Çorum FK", kod: "ÇRM", gp: 33, yeni: true },
+];
+/* Beklenen puan: ligin ortalamasına doğru gerileme. Yeni çıkanlar zaten tahmin.
+   Fiyat = beklenen puan - 26, yani bütçeyi tam harcayan her portföyün
+   beklenen toplamı eşit. Fark, gerçek sezonun tahminden sapmasından doğar. */
+const LIG_ORT = 46, GERILEME = 0.7, FIYAT_TABAN = 26;
+const beklenenPuan = (t) => t.yeni ? t.gp : Math.round(LIG_ORT + GERILEME * (t.gp - LIG_ORT));
+const fiyat = (t) => Math.max(1, Math.round(beklenenPuan(t) - FIYAT_TABAN));
+/* 2026-27 Süper Lig resmi fikstürü — takım kodlarıyla, liste sıralamasından bağımsız */
+const HAZIR_TARIH = ["14–17 Ağustos", "21–24 Ağustos", "28–31 Ağustos", "6 Eylül", "13 Eylül", "20 Eylül",
+    "11 Ekim", "18 Ekim", "25 Ekim", "1 Kasım", "8 Kasım", "22 Kasım", "29 Kasım", "6 Aralık", "13 Aralık", "20 Aralık",
+    "17 Ocak", "24 Ocak", "31 Ocak", "7 Şubat", "14 Şubat", "21 Şubat", "28 Şubat", "7 Mart", "14 Mart", "21 Mart",
+    "4 Nisan", "11 Nisan", "18 Nisan", "25 Nisan", "2 Mayıs", "9 Mayıs", "16 Mayıs", "23 Mayıs"];
+const HAZIR_MACLAR = [
+    [["GS", "ÇRM"], ["KSM", "TS"], ["KON", "RİZ"], ["GFK", "ALA"], ["GNÇ", "FB"], ["IBFK", "KOC"], ["AMD", "ERZ"], ["BJK", "EYP"], ["SAM", "GÖZ"]],
+    [["ERZ", "GS"], ["RİZ", "SAM"], ["ÇRM", "KSM"], ["FB", "KON"], ["TS", "IBFK"], ["EYP", "GFK"], ["ALA", "BJK"], ["GÖZ", "GNÇ"], ["KOC", "AMD"]],
+    [["GNÇ", "ERZ"], ["KON", "KOC"], ["GFK", "RİZ"], ["GS", "GÖZ"], ["EYP", "ALA"], ["IBFK", "KSM"], ["SAM", "FB"], ["AMD", "TS"], ["BJK", "ÇRM"]],
+    [["TS", "GNÇ"], ["KSM", "AMD"], ["IBFK", "GS"], ["RİZ", "ALA"], ["GÖZ", "GFK"], ["ÇRM", "EYP"], ["FB", "BJK"], ["KOC", "SAM"], ["ERZ", "KON"]],
+    [["GFK", "FB"], ["EYP", "RİZ"], ["ALA", "GÖZ"], ["AMD", "IBFK"], ["GNÇ", "KSM"], ["KON", "TS"], ["GS", "KOC"], ["BJK", "ERZ"], ["SAM", "ÇRM"]],
+    [["TS", "GS"], ["KSM", "KON"], ["IBFK", "GNÇ"], ["AMD", "BJK"], ["GÖZ", "RİZ"], ["ÇRM", "ALA"], ["FB", "EYP"], ["KOC", "GFK"], ["ERZ", "SAM"]],
+    [["GFK", "ÇRM"], ["EYP", "GÖZ"], ["ALA", "ERZ"], ["RİZ", "FB"], ["GNÇ", "AMD"], ["KON", "IBFK"], ["GS", "KSM"], ["BJK", "KOC"], ["SAM", "TS"]],
+    [["TS", "BJK"], ["KSM", "SAM"], ["IBFK", "GFK"], ["AMD", "KON"], ["GNÇ", "GS"], ["ÇRM", "RİZ"], ["FB", "ALA"], ["KOC", "GÖZ"], ["ERZ", "EYP"]],
+    [["GFK", "ERZ"], ["EYP", "KSM"], ["ALA", "KOC"], ["RİZ", "TS"], ["GÖZ", "ÇRM"], ["KON", "GNÇ"], ["GS", "FB"], ["BJK", "IBFK"], ["SAM", "AMD"]],
+    [["TS", "GFK"], ["KSM", "BJK"], ["IBFK", "SAM"], ["AMD", "EYP"], ["GNÇ", "ALA"], ["KON", "GS"], ["FB", "GÖZ"], ["KOC", "RİZ"], ["ERZ", "ÇRM"]],
+    [["GFK", "KSM"], ["EYP", "KOC"], ["ALA", "TS"], ["RİZ", "ERZ"], ["GÖZ", "IBFK"], ["ÇRM", "FB"], ["GS", "AMD"], ["BJK", "GNÇ"], ["SAM", "KON"]],
+    [["TS", "EYP"], ["KSM", "ALA"], ["IBFK", "ÇRM"], ["AMD", "RİZ"], ["GNÇ", "GFK"], ["KON", "BJK"], ["GS", "SAM"], ["KOC", "FB"], ["ERZ", "GÖZ"]],
+    [["GFK", "AMD"], ["EYP", "IBFK"], ["ALA", "KON"], ["RİZ", "KSM"], ["GÖZ", "TS"], ["ÇRM", "KOC"], ["FB", "ERZ"], ["BJK", "GS"], ["SAM", "GNÇ"]],
+    [["TS", "ÇRM"], ["KSM", "GÖZ"], ["IBFK", "FB"], ["AMD", "ALA"], ["GNÇ", "EYP"], ["KON", "GFK"], ["GS", "RİZ"], ["BJK", "SAM"], ["ERZ", "KOC"]],
+    [["GFK", "BJK"], ["EYP", "GS"], ["ALA", "SAM"], ["RİZ", "IBFK"], ["GÖZ", "KON"], ["ÇRM", "AMD"], ["FB", "TS"], ["KOC", "GNÇ"], ["ERZ", "KSM"]],
+    [["TS", "KOC"], ["KSM", "FB"], ["IBFK", "ERZ"], ["AMD", "GÖZ"], ["GNÇ", "ÇRM"], ["KON", "EYP"], ["GS", "ALA"], ["BJK", "RİZ"], ["SAM", "GFK"]],
+    [["GFK", "GS"], ["EYP", "SAM"], ["ALA", "IBFK"], ["RİZ", "GNÇ"], ["GÖZ", "BJK"], ["ÇRM", "KON"], ["FB", "AMD"], ["KOC", "KSM"], ["ERZ", "TS"]],
+    [["ALA", "GFK"], ["TS", "KSM"], ["KOC", "IBFK"], ["ERZ", "AMD"], ["FB", "GNÇ"], ["RİZ", "KON"], ["ÇRM", "GS"], ["EYP", "BJK"], ["GÖZ", "SAM"]],
+    [["IBFK", "TS"], ["GFK", "EYP"], ["BJK", "ALA"], ["SAM", "RİZ"], ["GNÇ", "GÖZ"], ["KSM", "ÇRM"], ["KON", "FB"], ["AMD", "KOC"], ["GS", "ERZ"]],
+    [["RİZ", "GFK"], ["ALA", "EYP"], ["KSM", "IBFK"], ["TS", "AMD"], ["ERZ", "GNÇ"], ["KOC", "KON"], ["GÖZ", "GS"], ["ÇRM", "BJK"], ["FB", "SAM"]],
+    [["GNÇ", "TS"], ["AMD", "KSM"], ["GS", "IBFK"], ["ALA", "RİZ"], ["GFK", "GÖZ"], ["EYP", "ÇRM"], ["BJK", "FB"], ["SAM", "KOC"], ["KON", "ERZ"]],
+    [["FB", "GFK"], ["RİZ", "EYP"], ["GÖZ", "ALA"], ["IBFK", "AMD"], ["KSM", "GNÇ"], ["TS", "KON"], ["KOC", "GS"], ["ERZ", "BJK"], ["ÇRM", "SAM"]],
+    [["GS", "TS"], ["KON", "KSM"], ["GNÇ", "IBFK"], ["BJK", "AMD"], ["RİZ", "GÖZ"], ["ALA", "ÇRM"], ["EYP", "FB"], ["GFK", "KOC"], ["SAM", "ERZ"]],
+    [["ÇRM", "GFK"], ["GÖZ", "EYP"], ["ERZ", "ALA"], ["FB", "RİZ"], ["AMD", "GNÇ"], ["IBFK", "KON"], ["KSM", "GS"], ["KOC", "BJK"], ["TS", "SAM"]],
+    [["BJK", "TS"], ["SAM", "KSM"], ["GFK", "IBFK"], ["KON", "AMD"], ["GS", "GNÇ"], ["RİZ", "ÇRM"], ["ALA", "FB"], ["GÖZ", "KOC"], ["EYP", "ERZ"]],
+    [["ERZ", "GFK"], ["KSM", "EYP"], ["KOC", "ALA"], ["TS", "RİZ"], ["ÇRM", "GÖZ"], ["GNÇ", "KON"], ["FB", "GS"], ["IBFK", "BJK"], ["AMD", "SAM"]],
+    [["GFK", "TS"], ["BJK", "KSM"], ["SAM", "IBFK"], ["EYP", "AMD"], ["ALA", "GNÇ"], ["GS", "KON"], ["GÖZ", "FB"], ["RİZ", "KOC"], ["ÇRM", "ERZ"]],
+    [["KSM", "GFK"], ["KOC", "EYP"], ["TS", "ALA"], ["ERZ", "RİZ"], ["IBFK", "GÖZ"], ["FB", "ÇRM"], ["AMD", "GS"], ["GNÇ", "BJK"], ["KON", "SAM"]],
+    [["EYP", "TS"], ["ALA", "KSM"], ["ÇRM", "IBFK"], ["RİZ", "AMD"], ["GFK", "GNÇ"], ["BJK", "KON"], ["SAM", "GS"], ["FB", "KOC"], ["GÖZ", "ERZ"]],
+    [["AMD", "GFK"], ["IBFK", "EYP"], ["KON", "ALA"], ["KSM", "RİZ"], ["TS", "GÖZ"], ["KOC", "ÇRM"], ["ERZ", "FB"], ["GS", "BJK"], ["GNÇ", "SAM"]],
+    [["ÇRM", "TS"], ["GÖZ", "KSM"], ["FB", "IBFK"], ["ALA", "AMD"], ["EYP", "GNÇ"], ["GFK", "KON"], ["RİZ", "GS"], ["SAM", "BJK"], ["KOC", "ERZ"]],
+    [["BJK", "GFK"], ["GS", "EYP"], ["SAM", "ALA"], ["IBFK", "RİZ"], ["KON", "GÖZ"], ["AMD", "ÇRM"], ["TS", "FB"], ["GNÇ", "KOC"], ["KSM", "ERZ"]],
+    [["KOC", "TS"], ["FB", "KSM"], ["ERZ", "IBFK"], ["GÖZ", "AMD"], ["ÇRM", "GNÇ"], ["EYP", "KON"], ["ALA", "GS"], ["RİZ", "BJK"], ["GFK", "SAM"]],
+    [["GS", "GFK"], ["SAM", "EYP"], ["IBFK", "ALA"], ["GNÇ", "RİZ"], ["BJK", "GÖZ"], ["KON", "ÇRM"], ["AMD", "FB"], ["KSM", "KOC"], ["TS", "ERZ"]],
+];
+const HAZIR_FIKSTUR = Object.fromEntries(HAZIR_MACLAR.map((maclar, i) => [i + 1, { tarih: HAZIR_TARIH[i], maclar }]));
+const KREDI = 70, PORTFOY_ADET = 4;
+const BUYUK4 = ["GS", "FB", "BJK", "TS"];
+const TEK_SAHIP_CARPAN = 1.25;
+const GIRIS_GORSEL = "[gorsel cikarildi — inceleme kopyasi]";
+const PATLICAN_GORSEL = "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDABALDA4MChAODQ4SERATGCgaGBYWGDEjJR0oOjM9PDkzODdASFxOQERXRTc4UG1RV19iZ2hnPk1xeXBkeFxlZ2P/2wBDARESEhgVGC8aGi9jQjhCY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2P/wgARCABgAGADASIAAhEBAxEB/8QAGgAAAgMBAQAAAAAAAAAAAAAAAAMBAgQFBv/EABgBAQEBAQEAAAAAAAAAAAAAAAABAwIE/9oADAMBAAIQAxAAAAH0AAAAEEi+adU8xkPZHjOmehACDinV4nHoXXMrWZArMHvEHm5F4rOtTZqgrNxU6WJjNjTpee7sYXMns8TVkZs09TI3W0yM2NMLNtznTanmiK6G71Oh7uiWMCsyASGWuiRLbgBJEgAAAH//xAAgEAACAgMAAgMBAAAAAAAAAAABAgADBBESIDAQIzFA/9oACAEBAAEFAv4mZVlmdWsfOtMORaYMi0SrPPjZYtYuzyYzs58ydS/OAjOzn0XXLSt+S9x+NeOjOTLbBWMtttErLE6WE/AQwJOZwYKoTsk9MmLqvJYq+oK4EnECzmcQJHTsLj1gs25Z9li1wLOYEgScTmam5+y4MYqcwJAkCzma8Nan5NExUgWa8yJxAsA9Opr1/wD/xAAXEQADAQAAAAAAAAAAAAAAAAABEEAR/9oACAEDAQE/AYgtg//EABsRAAICAwEAAAAAAAAAAAAAAAECABEgITBB/9oACAECAQE/Ael5Iw9gazrEIYNc/wD/xAAnEAABAwIEBQUAAAAAAAAAAAABABEhAlEDIjAxEBIgQWEjMkBQgf/aAAgBAQAGPwL4WYsssrLC95UYlS9QP0vUWTYYbysx0JTYUm6eovovUVam2lcnYJiXPfSlGoom65q/wLl4SoHDboZ2CBbbgauysttCU1Ihefrf/8QAJhAAAgEDAwMEAwAAAAAAAAAAAAERITFRECBBYXGRMECBsaHB0f/aAAgBAQABPyH2SWU9xRUbnCl7F/8AOO58gShQMrbD2JSEyJw1vWBJc7EI20Jckz9RJiW66QQQW2fBcuWR5vAuiUjgUViaklWdLQSKeUDU8h/gSlwiCJR3FpKryS3KuiGr0ErqLFEnA5h94fQ55VsXLTfdZBLpcWd8K5P+mmLJ+BPATCbTqduWORAfJcky2qfgkkpYswRrAUrfJid31VBFFYEdQg5nKDonkTa6ghGylJCUjubaEYhG6fUwkejQj0v/2gAMAwEAAgADAAAAEAABDOOAFAeIDLcR9o2lKMwiGFJmBPMDLGIAAP/EABsRAAMAAgMAAAAAAAAAAAAAAAABERAwMUBR/9oACAEDAQE/ENEJlKkmKUoyXIn6PoP/xAAaEQADAAMBAAAAAAAAAAAAAAABEBEAITBR/9oACAECAQE/EOhCxSKILZbOE8irHwSE5//EACQQAQACAgICAgIDAQAAAAAAAAEAESFBMVFhcRCRIIEwQMHR/9oACAEBAAE/EP6Vbl5S4Ct8EdT01mILn9UgIB6Wn0x/TCVJ+KwRoXL6J9kAMWM3b8V8LGVfgHQFqaCY9cCuHo3HzvtXKhaWg2JTzE+UtS8Hy9BEFKcnH77fi1KZY5iUcsZly2Ipcw4QWWR4pzsFByv8DuPt5qsF8DoDXmKQWrQRRYDSqgmY68K0xK2uoW0K9E0oTli3mIcJ6IcJ/UcFAdGWIWNMvADR4I1dgyl1WcuvUaOGAo5vk+yJdNtqtf8AP3EV2Do2/ccKoO6h/wCEA4P3OOAHgqO5ueGMbFVefh6iOxVmSe1y/vC5eBGoOF9hvxfMqsCd8s7S9kytmeOVahGoBqCajCI1Ki09TUBRpsIBfPiKMd4N16jK3K7hGoJqEagmoCVKisHEzShOsOhKaxCHEM1ASvxscQHUE1A0gD+BtuCQBr+L/9k=";
+const SURUM = "6.12 · 12.09.2026";
+const MAGAZA_URUNLER = [
+    { id: "lejyoner", ad: "LEJYONER ESCORT", alt: "Sezonluk ödül · 3 adet", fiyat: 2000, stok: 3, kisa: "LE" },
+];
+const LEJYONER_GORSEL = "[gorsel cikarildi — inceleme kopyasi]";
+const MAGAZA_BOS = { alimlar: [], zekat: [], erzak: [], cezalar: [] };
+const ERZAK_FIYAT = 50;
+const AYAKTA_UCRET = 50;
+const CEZA_RULET = 50;
+const CEZA_KUPON = 100;
+const AYAKTA_BOS = { tur: 1, kasa: 0, girenler: [], canli: [], elenen: [], kullanilan: {}, secimler: {}, girisler: [], gecmis: [], cozulen: {}, baslangicHafta: null, sonHafta: 0, turBitisHafta: null };
+const RZ_MUHUR = "Yapacağın tahminin aq";
+const KARTLAR = [
+    { id: "gol", ad: "Gol avcısı", kisa: "GOL", puan: 3, acik: "Bu hafta en çok gol hangi maçta atılır?" },
+    { id: "sifir", ad: "0–0 avcısı", kisa: "0-0", puan: 4, acik: "Hangi maç 0–0 biter? Haftada 0–0 yoksa puan yok." },
+    { id: "surpriz", ad: "Sürpriz avcısı", kisa: "SÜR", puan: 4, acik: "Haftanın sürprizini seç. Yüzdeler maç listesinde." },
+];
+const ROZET_TANIM = [
+    { id: "kahin", ad: "Baba Vanga", acik: "Tek bir haftada 4 tam skor." },
+    { id: "surpriz", ad: "Wow", acik: "Sezon boyunca 8 tutan olay kartı." },
+    { id: "banko", ad: "Hz. Banko", acik: "5 hafta üst üste bankonun tam skoru." },
+    { id: "kuller", ad: "Küllerinden doğan", acik: "İlk 10 haftayı kupon klasmanında sonuncu kapatıp sonradan ilk 2’ye girmek." },
+    { id: "baron", ad: "Portföy Baron’u", acik: "İlk 10 haftadan sonra portföyde en az 20 sayı farkla tek lider." },
+    { id: "derbi", ad: "Derbi kasabı", acik: "Bir derbi maçının skorunu birebir bilmek." },
+    { id: "kartal", ad: "Kara Kartal modu", acik: "34 haftalık sezonda Beşiktaş maçlarında 10 tam skor." },
+];
+function rozetAd(id) {
+    const r = ROZET_TANIM.find(x => x.id === id);
+    return r ? r.ad : id;
+}
+function rozetAcik(id) {
+    const r = ROZET_TANIM.find(x => x.id === id);
+    return r ? r.acik : "";
+}
+const TRANSFER_SONRA = 17, TRANSFER_GUN_MS = 3 * 86400000, TRANSFER_KOMISYON = 5;
+function gucSkoru(idx, takimlar, onceki) {
+    const t = takimlar[idx] || { gp: 40 };
+    const sezon = Number(t.gp) || 40;
+    let ligP = 0;
+    const form = [];
+    (onceki || []).forEach(h => {
+        (h.maclar || []).forEach((m, i) => {
+            const sn = h.sonuclar && h.sonuclar[i];
+            if (!sn || sn[0] == null || sn[1] == null) return;
+            const ev = m.e === idx, dep = m.d === idx;
+            if (!ev && !dep) return;
+            const gf = ev ? sn[0] : sn[1], ga = ev ? sn[1] : sn[0];
+            const p = gf > ga ? 3 : gf === ga ? 1 : 0;
+            ligP += p;
+            form.push(p);
+        });
+    });
+    const son5 = form.slice(-5);
+    return sezon * 0.45 + ligP * 0.9 + son5.reduce((s, x) => s + x, 0) * 1.4;
+}
+function macOranlari(maclar, takimlar, onceki) {
+    return (maclar || []).map(m => {
+        const ge = gucSkoru(m.e, takimlar, onceki) + 3.2;
+        const gd = gucSkoru(m.d, takimlar, onceki);
+        const diff = (ge - gd) / 14;
+        const pe = Math.exp(diff), pd = Math.exp(-diff), pb = 0.92;
+        const s = pe + pd + pb;
+        let ev = Math.round(pe / s * 100), ber = Math.round(pb / s * 100), dep = 100 - ev - ber;
+        if (dep < 1) { dep = 1; ev = Math.max(1, ev - 1); }
+        if (ev < 1) { ev = 1; dep = Math.max(1, dep - 1); }
+        if (ber < 8) { const fark = 8 - ber; ber = 8; if (ev >= dep) ev = Math.max(1, ev - fark); else dep = Math.max(1, dep - fark); }
+        const tot = ev + ber + dep;
+        if (tot !== 100) ev += (100 - tot);
+        if (ev < 1) { dep = Math.max(1, dep + ev - 1); ev = 1; }
+        if (dep < 1) { ev = Math.max(1, ev + dep - 1); dep = 1; }
+        return { ev, ber, dep };
+    });
+}
+function gercekYuzde(oran, sn) {
+    if (!oran || !sn) return 50;
+    if (sn[0] > sn[1]) return oran.ev;
+    if (sn[1] > sn[0]) return oran.dep;
+    return oran.ber;
+}
+function surprizMi(oran, sn) {
+    if (!oran || !sn || sn[0] == null) return false;
+    if (sn[0] > sn[1]) return oran.ev <= 30;
+    if (sn[1] > sn[0]) return oran.dep <= 30;
+    return oran.ev >= 60 || oran.dep >= 60;
+}
+function haftaninSurprizi(sonuclar, oranlar) {
+    const aday = [];
+    (sonuclar || []).forEach((sn, i) => {
+        if (sn && sn[0] != null && surprizMi(oranlar && oranlar[i], sn))
+            aday.push({ i, y: gercekYuzde(oranlar[i], sn) });
+    });
+    if (!aday.length) return null;
+    aday.sort((a, b) => a.y - b.y || a.i - b.i);
+    return aday[0].i;
+}
+function kartPuan(kart, sonuclar, oranlar) {
+    if (!kart || kart.mac == null || !sonuclar || !sonuclar[kart.mac] || sonuclar[kart.mac][0] == null) return 0;
+    const i = +kart.mac;
+    if (kart.tur === "gol") {
+        const g = sonuclar.map(s => (s && s[0] != null ? s[0] + s[1] : -1));
+        const max = Math.max.apply(null, g);
+        return g[i] === max && max >= 0 ? 3 : 0;
+    }
+    if (kart.tur === "sifir") {
+        if (!sonuclar.some(s => s && s[0] === 0 && s[1] === 0)) return 0;
+        return sonuclar[i][0] === 0 && sonuclar[i][1] === 0 ? 4 : 0;
+    }
+    if (kart.tur === "surpriz") {
+        const s = haftaninSurprizi(sonuclar, oranlar);
+        return s === i ? 4 : 0;
+    }
+    return 0;
+}
+function kartEtiket(id) {
+    const k = KARTLAR.find(x => x.id === id);
+    return k ? k.ad : id;
+}
+/* Tam skor 5, banko tam 10. Banko fark 6'dır; Baba Vanga'ya girmez. */
+function tamSkorPuani(p) { return p === 5 || p === 10; }
+function ayaktaNorm(v) {
+    const x = v && typeof v === "object" ? v : {};
+    return {
+        tur: +x.tur || 1,
+        kasa: +x.kasa || 0,
+        girenler: Array.isArray(x.girenler) ? x.girenler.slice() : [],
+        canli: Array.isArray(x.canli) ? x.canli.slice() : [],
+        elenen: Array.isArray(x.elenen) ? x.elenen.slice() : [],
+        kullanilan: x.kullanilan && typeof x.kullanilan === "object" ? x.kullanilan : {},
+        secimler: x.secimler && typeof x.secimler === "object" ? x.secimler : {},
+        girisler: Array.isArray(x.girisler) ? x.girisler.slice() : [],
+        gecmis: Array.isArray(x.gecmis) ? x.gecmis.slice() : [],
+        cozulen: x.cozulen && typeof x.cozulen === "object" ? x.cozulen : {},
+        baslangicHafta: x.baslangicHafta == null || x.baslangicHafta === "" ? null : +x.baslangicHafta,
+        sonHafta: +x.sonHafta || 0,
+        turBitisHafta: x.turBitisHafta == null || x.turBitisHafta === "" ? null : +x.turBitisHafta,
+    };
+}
+function takimHaftaSonuc(h, idx) {
+    const maclar = (h && h.maclar) || [];
+    const sonuclar = (h && h.sonuclar) || [];
+    for (let i = 0; i < maclar.length; i++) {
+        const m = maclar[i], sn = sonuclar[i];
+        if (!m || !sn || sn[0] == null || sn[1] == null) continue;
+        if (+m.e === +idx) {
+            if (sn[0] > sn[1]) return "G";
+            if (sn[0] < sn[1]) return "M";
+            return "B";
+        }
+        if (+m.d === +idx) {
+            if (sn[1] > sn[0]) return "G";
+            if (sn[1] < sn[0]) return "M";
+            return "B";
+        }
+    }
+    return null;
+}
+
+function ruletNedenYaz(neden, takimAd) {
+    if (neden === "G") return (takimAd || "takım") + " kazandı";
+    if (neden === "B") return (takimAd || "takım") + " berabere";
+    if (neden === "M") return (takimAd || "takım") + " yenildi";
+    if (neden === "yok") return takimAd ? takimAd + " oynamadı" : "oynamadı";
+    if (neden === "secmedi") return "seçmedi";
+    return takimAd || "";
+}
+
+function ayaktaTurSifirla(a, gecmis, hafta) {
+    a.gecmis = (a.gecmis || []).concat([gecmis]);
+    a.tur = (+a.tur || 1) + 1;
+    if (!gecmis.devir) a.kasa = 0;
+    a.girenler = [];
+    a.canli = [];
+    a.elenen = [];
+    a.kullanilan = {};
+    a.secimler = {};
+    a.cozulen = {};
+    a.baslangicHafta = null;
+    a.turBitisHafta = +hafta;
+    a.sonHafta = +hafta;
+    return a;
+}
+
+function ayaktaUygulaSonuclar(a, h, teslimKapali, zorla) {
+    const hf = String(h.no);
+    if (!a.cozulen || typeof a.cozulen !== "object") a.cozulen = {};
+    const picks = a.secimler[hf] || {};
+    const ilanlar = [];
+    const yeniCanli = [];
+    const yeniElenen = (a.elenen || []).slice();
+    const oncekiCanli = (a.canli || []).slice();
+
+    function kaydetCoz(sl, idx, neden) {
+        if (!a.cozulen[hf]) a.cozulen[hf] = {};
+        if (a.cozulen[hf][sl]) return false;
+        a.cozulen[hf][sl] = { takim: idx, sonuc: neden, zaman: Date.now() };
+        ilanlar.push({ slug: sl, takim: idx, neden: neden });
+        return true;
+    }
+
+    oncekiCanli.forEach(function (sl) {
+        const once = a.cozulen[hf] && a.cozulen[hf][sl];
+        if (once && once.sonuc === "G") {
+            yeniCanli.push(sl);
+            return;
+        }
+        if (once && once.sonuc !== "G") return;
+        const idx = picks[sl];
+        if (idx == null) {
+            if (teslimKapali || zorla) {
+                if (kaydetCoz(sl, null, "secmedi")) {
+                    yeniElenen.push({ slug: sl, hafta: h.no, takim: null, neden: "secmedi" });
+                }
+            } else yeniCanli.push(sl);
+            return;
+        }
+        const sn = takimHaftaSonuc(h, idx);
+        if (sn == null) {
+            if (zorla) {
+                if (kaydetCoz(sl, +idx, "yok")) {
+                    yeniElenen.push({ slug: sl, hafta: h.no, takim: +idx, neden: "yok" });
+                }
+            } else yeniCanli.push(sl);
+            return;
+        }
+        if (sn === "G") {
+            kaydetCoz(sl, +idx, "G");
+            yeniCanli.push(sl);
+        } else if (kaydetCoz(sl, +idx, sn)) {
+            yeniElenen.push({ slug: sl, hafta: h.no, takim: +idx, neden: sn });
+        }
+    });
+
+    a.canli = yeniCanli;
+    a.elenen = yeniElenen;
+
+    let bitisMesaj = "";
+    const turAktif = ((a.girenler || []).length > 0) || oncekiCanli.length > 0;
+    if (turAktif && yeniCanli.length === 1) {
+        const kazanan = yeniCanli[0];
+        const coz = a.cozulen[hf][kazanan];
+        if (coz && coz.sonuc === "G") {
+            bitisMesaj = "kazandi";
+            ayaktaTurSifirla(a, {
+                tur: a.tur, kazanan: kazanan, kasa: a.kasa, elenen: yeniElenen.slice(),
+                canli: [kazanan], devir: false, bitis: h.no,
+            }, h.no);
+        }
+    } else if (turAktif && yeniCanli.length === 0) {
+        bitisMesaj = "devir";
+        ayaktaTurSifirla(a, {
+            tur: a.tur, kazanan: null, kasa: a.kasa, elenen: yeniElenen.slice(),
+            canli: [], devir: true, bitis: h.no,
+        }, h.no);
+    }
+    return { a: a, degisti: ilanlar.length > 0 || bitisMesaj !== "", ilanlar: ilanlar, bitisMesaj: bitisMesaj };
+}
+
+const TAKMA_ADLAR = ["Meto", "Fero", "Josh", "Buzlulatte", "Lort"];
+/* Grup avatarları — 132px, gömülü */
+const AVATARLAR = {
+    buzlulatte: "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDABALDA4MChAODQ4SERATGCgaGBYWGDEjJR0oOjM9PDkzODdASFxOQERXRTc4UG1RV19iZ2hnPk1xeXBkeFxlZ2P/2wBDARESEhgVGC8aGi9jQjhCY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2P/wgARCABgAGADASIAAhEBAxEB/8QAGgAAAgMBAQAAAAAAAAAAAAAAAwUAAQQCBv/EABgBAAMBAQAAAAAAAAAAAAAAAAABAwIE/9oADAMBAAIQAxAAAAF/JAmMqvGgZW3c6qNbHK00L5X0lZGq6ai5imxSiCNGpZAJ6pg2PPAdFMZTnq/PFTVPinBVjSVT5NmZoNdkGTnLyDwkl+ZMFbvnXC2Sbk3IcfGdsAXY+WYN1eeSTefCuFBM6F2bKDixAnXhosK16U4yUjJIzwscrwzSuUXY4F9VGNvTeH9WG2Sw/8QAJRAAAgEDBAIBBQAAAAAAAAAAAQIDABASBBETISAxMhQiIzNB/9oACAEBAAEFAryz40+clcNccsdR611pHWRfGV8V2rGgK2qSENQL6aSKQSpeeYgliaFwbOgcadWhluejH8VszEV9QyHoiyndbFe3OMSfE+t3YsTvFGY2r0Y+o7SFg7Pm6ev4zsiNlIvxV25K06vy2TVvIdQcIkqI9A0+NDYCYhaYBhFHheBsZdX+tTUb7GWYKeZMYpRJRGTQr93grc0HohqgjUq0a0wwMZASNdl8I3MbTAG0MgA2/LJIrmKYcqMHXxDFa6NdisrCtHPg95dKuTwSKPIVpZeSK3//xAAfEQACAgEFAQEAAAAAAAAAAAAAAQIREAMSICExMlH/2gAIAQMBAT8BIxs2ocENVjTVvsqsIlG1jT9EW66F36N1iPyRZaPSX5iLofQmqNyjwvj/AP/EAB8RAAICAgEFAAAAAAAAAAAAAAABAhEQMSASITJBUf/aAAgBAgEBPwElKjqFMTvE3SyyMqeJ6GLY+wliXkSRTNC+4krNnsq+FFcP/8QAKhAAAQMDAgYBBAMAAAAAAAAAAQACERASISAxAyJBUWFxMiMwQrGBkaH/2gAIAQEABj8CrDcu/S5nErZS0uHpRxRcO4VzTI1Y3OqW/wAjug5uiGoGZDtWVH4u/egkp2K8rbivqstHdSDioNT7QHU1hgVnE/1YPKat9VNmxK8IUNm64d3zG6yrZIR4ZMipDQ0YUD1oysIXCQOi4RY2CdwvJqPONELAyu1J0wd+tZeJJWIKlpMKe6zudMq9u1IKm6AvCaXjlHQK5pka8f1pg/F2h9mLWypiRE4+xn5Dev8A/8QAIxABAAICAQQDAQEBAAAAAAAAAQARITFBECBRYXGR0aGx8P/aAAgBAQABPyHrmmBu9f8APEeoPHH1MtQfZSjf0AYZEnclC8Xr3Cz6hJjcyIPYUz8pEJVh/nZkNjxMqAVbs9Qw10oiyiiZkvH8cOxGZZqVbEArTxMicRak9HEAx00JYBK0kuORDfHzxKI5L62elV82y2AN1f2amCpG0Y2hMAWPAplAu4ojUMD4hpO6dVWlkL48v+zN3YwT+KJeEPzd7qLDmxpBzOiCaAf7BNHLvwdQ63K2z9lbAql9YZuJ8YcTUebEukaPmxAK53PXPtZIbL4elUwds851Nygt5zcCtLeobt5CZiyhvtBtEr9TLDsiDiLieZxOEE45jDQNjicIGUb5g+uziCTrk8k5XW4bnGSbDybgErDbyw1108UHWjnu0GuSJk+6CsvVPTBJm/yenz2PNtau73+RUqATwGJElSpXRZlXa8P66//aAAwDAQACAAMAAAAQ87UsoU8KsiU++/dOReazZsP8l5p2jAsr/e04/8QAHBEAAwEBAQADAAAAAAAAAAAAAAERMRAhIEFh/9oACAEDAQE/EOBExgxo+JBGDxIZNiuDQPWx0fYWLom/OKqa0mRejUeDNb5f7gjeCCeUscG66+4jL8P/xAAbEQEAAgMBAQAAAAAAAAAAAAABABEQITEgUf/aAAgBAgEBPxDAXEOwBZhNEW5tgQjYDcCiA6lVRyXuLUHkughyG24Rwpa6Q0uU2ti63ArWLn15f//EACcQAQACAgEDAwUBAQEAAAAAAAEAESExQVGBoSBhcRCRscHR8OHx/9oACAEBAAE/EPqT2gPKrb7O9S0u3JodmPzEqht9prI9QPtqCx25Kntp8TXjZOHonD6qkiwTkBtfH5o5mmumrbc7V5XawkyTGhfEEnSMAeFmT9O3R/uY/Z3jtcj7noTkxUjpXnPAa92+kAxcFum7f57fEqqdCXTNxMQlWvmMr3RNkvYPvXAWq9wT7eg712AbW2UAEiiqo6mahgO8YHyYgCayQ/sM0TJs7TBrF/mWxBlroM+RB1Ih3L+qUktt+ijtmLgYRlnal1HMyHMYPNSae6HmCTcVqnTlE9xiNQLs6YigX1vUVwVtZ7Zj4ILjpj6nM84MiuxfhFpLYOnXvuMKoY3Yh01KWw5rxK8BJwoxQ+IdMDlnBECFeW4Kct3Uz/O8PoLFWWyuBMfZ5l8XgN593v8AuBTrBzsk6qI5YpeOswqttzfmNB9foVQt9jMxInOaKxjrenpcpaEVdDQex9SY6zHzrzUULjX8SutykDV+CB23LpQ/6igQAFaOLhAQGdhgCqIEzu8QzEH3K/o8+h3fWMJ/4j9vvCgqSkes5XYn4cv4IYVEyCqeyS11KyA7p+ZmfkHp/ZcxSUeB2PQ+GZkB04OhKhKPZ8+8eN+I8K14hVFci2fiCJ33oigTclW4a5rpDsDwP9h9KcfaMLmtumNW1e0pPjrFFWfOIo0+8tdR2OkYs8C2tB+j26egbHacU6ZyYgGqqrLFLzwxByI8jLdRUIKVNYgB5OfiVkeTZTjuPN/X/9k=",
+    lort: "data:image/jpeg;base64,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",
+    meto: "data:image/jpeg;base64,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",
+    fero: "data:image/jpeg;base64,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",
+    josh: "data:image/jpeg;base64,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",
+};
+const slug = (s) => s.toLowerCase().replace(/ç/g, "c").replace(/ğ/g, "g").replace(/ı/g, "i").replace(/ö/g, "o").replace(/ş/g, "s").replace(/ü/g, "u").replace(/[^a-z0-9]/g, "").slice(0, 20);
+/* TheSportsDB'den sonuç çekme — ücretsiz anahtar, Süper Lig id 4339 */
+const TSDB = { anahtar: "123", lig: "4339", sezon: "2026-2027" };
+const sadeAd = (x) => (x || "").toLowerCase()
+    .replace(/ı/g, "i").replace(/İ/g, "i").replace(/ş/g, "s").replace(/ğ/g, "g")
+    .replace(/ü/g, "u").replace(/ö/g, "o").replace(/ç/g, "c")
+    .replace(/[^a-z]/g, "");
+/* Kod -> API'de geçebilecek adlar */
+const TAKIM_ADLARI = {
+    GS: ["galatasaray"],
+    FB: ["fenerbahce"],
+    BJK: ["besiktas"],
+    TS: ["trabzonspor"],
+    IBFK: ["basaksehir", "istanbulbasaksehir", "medipolbasaksehir"],
+    GOZ: ["goztepe"],
+    SAM: ["samsunspor"],
+    RIZ: ["rizespor", "caykurrizespor"],
+    KON: ["konyaspor", "ittifakholdingkonyaspor"],
+    ALA: ["alanyaspor", "corendonalanyaspor"],
+    KOC: ["kocaelispor"],
+    GFK: ["gaziantep", "gaziantepfk", "gazisehirgaziantep"],
+    KSM: ["kasimpasa"],
+    GNC: ["genclerbirligi"],
+    EYP: ["eyupspor"],
+    ERZ: ["erzurumspor", "buyuksehirbelediyeerzurumspor"],
+    AMD: ["amedspor", "amedsk", "amedsportif"],
+    CRM: ["corum", "corumfk"],
+};
+/* Bizim takım kodumuzu sadeleştirip sözlükte arar */
+function apiEslesme(apiAdi) {
+    const a = sadeAd(apiAdi);
+    if (!a)
+        return null;
+    for (const kod in TAKIM_ADLARI) {
+        for (const ad of TAKIM_ADLARI[kod]) {
+            if (a === ad || a.includes(ad) || ad.includes(a))
+                return kod;
+        }
+    }
+    return null;
+}
+/* PIN karması — tuzu lig ve kişi adından geliyor */
+async function pinKarma(lig, kisi, pin) {
+    const metin = "kupon|" + lig + "|" + kisi + "|" + pin;
+    try {
+        const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(metin));
+        return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, "0")).join("");
+    }
+    catch (e) {
+        let h = 5381;
+        for (let i = 0; i < metin.length; i++)
+            h = ((h << 5) + h + metin.charCodeAt(i)) >>> 0;
+        return "y" + h.toString(16);
+    }
+}
+const avatarBul = (isim) => AVATARLAR[slug(isim || "")] || null;
+function Yuz({ isim, boy = 42, vurgu = false }) {
+    const src = avatarBul(isim);
+    const ortak = {
+        width: boy, height: boy, borderRadius: "50%", flexShrink: 0,
+        border: vurgu ? "2px solid var(--aksan)" : "1px solid var(--cizgi)",
+        boxShadow: vurgu ? "0 0 0 3px color-mix(in oklab, var(--banko) 32%, transparent)" : "none",
+    };
+    if (src)
+        return React.createElement("img", { src: src, alt: isim, style: { ...ortak, objectFit: "cover", display: "block" } });
+    return (React.createElement("div", { style: { ...ortak, background: "var(--kat2)", color: "var(--sol)", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "Fraunces,Georgia,serif", fontWeight: 700, fontSize: boy * 0.42 } }, (isim || "?").trim().charAt(0).toUpperCase()));
+}
+function CatismaFiguru() {
+    const s = (tag, props) => React.createElement(tag, props);
+    return React.createElement("svg", {
+        className: "pr-catisma-svg", viewBox: "0 0 140 78", fill: "none",
+        stroke: "currentColor", strokeWidth: 2.25, strokeLinecap: "round", strokeLinejoin: "round",
+        "aria-hidden": true,
+    },
+        s("circle", { cx: 34, cy: 15, r: 7 }),
+        s("path", { d: "M34 22 L47 48" }),
+        s("path", { d: "M47 48 L31 74 M47 48 L61 74" }),
+        s("path", { d: "M38 33 L16 44" }),
+        s("path", { d: "M38 29 L80 8", strokeWidth: 2.8 }),
+        s("circle", { cx: 106, cy: 15, r: 7 }),
+        s("path", { d: "M106 22 L93 48" }),
+        s("path", { d: "M93 48 L79 74 M93 48 L111 74" }),
+        s("path", { d: "M102 33 L124 44" }),
+        s("path", { d: "M102 29 L60 8", strokeWidth: 2.8 }));
+}
+function RuletFiguru({ don = false }) {
+    const s = (tag, props) => React.createElement(tag, props);
+    const ticks = [];
+    for (let i = 0; i < 18; i++) {
+        ticks.push(s("line", {
+            key: i, x1: 60, y1: 8, x2: 60, y2: i % 3 === 0 ? 18 : 14,
+            stroke: "currentColor",
+            strokeWidth: i % 3 === 0 ? 2 : 1.15,
+            transform: "rotate(" + (i * 20) + " 60 60)",
+            opacity: i % 3 === 0 ? 1 : 0.5,
+        }));
+    }
+    return React.createElement("svg", {
+        className: "rl-cark" + (don ? " don" : ""),
+        viewBox: "0 0 120 120", fill: "none", "aria-hidden": true,
+    },
+        s("circle", { cx: 60, cy: 60, r: 56, stroke: "currentColor", strokeWidth: 2 }),
+        s("circle", { cx: 60, cy: 60, r: 44, stroke: "currentColor", strokeWidth: 1.2, opacity: 0.5 }),
+        s("circle", { cx: 60, cy: 60, r: 16, stroke: "currentColor", strokeWidth: 1.6 }),
+        s("circle", { cx: 60, cy: 60, r: 4.5, fill: "currentColor", stroke: "none" }),
+        ticks,
+        s("circle", { cx: 97, cy: 27, r: 3.3, fill: "currentColor", stroke: "none" }));
+}
+function Konsol7Ikon() {
+    const s = (tag, props) => React.createElement(tag, props);
+    return React.createElement("svg", {
+        className: "mg-kon7", viewBox: "0 0 72 44", fill: "none",
+        stroke: "currentColor", strokeWidth: 2, strokeLinecap: "round", strokeLinejoin: "round",
+        "aria-hidden": true,
+    },
+        s("path", { d: "M16 17 C9 17 6 24 7 33 C8 39 16 40 19 33 L20 20 C20 17 18 17 16 17Z" }),
+        s("path", { d: "M56 17 C63 17 66 24 65 33 C64 39 56 40 53 33 L52 20 C52 17 54 17 56 17Z" }),
+        s("path", { d: "M19 12 H53 C58 12 60 15 60 19 V25 C60 29 56 32 51 32 H21 C16 32 12 29 12 25 V19 C12 15 14 12 19 12Z" }),
+        s("rect", { x: 30, y: 16, width: 12, height: 7, rx: 1.6 }),
+        s("path", { d: "M21 20.5 h7 M24.5 17 v7" }),
+        s("circle", { cx: 50, cy: 18.2, r: 1.35, fill: "currentColor", stroke: "none" }),
+        s("circle", { cx: 53.2, cy: 21.2, r: 1.35, fill: "currentColor", stroke: "none" }),
+        s("circle", { cx: 46.8, cy: 21.2, r: 1.35, fill: "currentColor", stroke: "none" }),
+        s("circle", { cx: 50, cy: 24.2, r: 1.35, fill: "currentColor", stroke: "none" }));
+}
+/* Puanlama */
+function macPuani(tahmin, sonuc) {
+    if (!tahmin || !sonuc)
+        return 0;
+    const [te, td] = tahmin, [se, sd] = sonuc;
+    if (te === se && td === sd)
+        return 5;
+    const ts = Math.sign(te - td), ss = Math.sign(se - sd);
+    if (ts !== ss)
+        return 0;
+    if (te - td === se - sd)
+        return 3;
+    return 2;
+}
+const bosSatir = () => ({ o: 0, g: 0, b: 0, m: 0, ag: 0, yg: 0, p: 0 });
+/* Kupon Pro: pure, historical analytics. Current private picks are never included. */
+const KAnaliz = (() => {
+    const has = (o, k) => Object.prototype.hasOwnProperty.call(o || {}, k);
+    const valid = x => Array.isArray(x) && x.length === 2 && x.every(n => Number.isInteger(n) && n >= 0);
+    function rank(scores) {
+        return Object.entries(scores || {}).sort((a,b) => b[1]-a[1] || a[0].localeCompare(b[0])).map(([slug,puan],i,all) => ({slug,puan,sira:1+all.filter(x=>x[1]>puan).length}));
+    }
+    function stats(weeks,who) {
+        const r={hafta:0,mac:0,tam:0,sonuc:0,banko:0,bankoTam:0,bankoDogru:0,puan:0,enIyi:null,takimlar:{},form:[]};
+        for(const h of weeks || []) {
+            if(!has(h.tahminler,who)) continue;
+            r.hafta++; const puan=Number((h.puanlar && h.puanlar[who]) || 0);r.puan+=puan;r.form.push({no:h.no,puan});
+            if(!r.enIyi || puan>r.enIyi.puan)r.enIyi={no:h.no,puan};
+            (h.maclar || []).forEach((m,i)=>{
+                const t=h.tahminler[who] && h.tahminler[who][i],s=h.sonuclar && h.sonuclar[i];if(!valid(t)||!valid(s))return;
+                const tam=t[0]===s[0]&&t[1]===s[1],dogru=Math.sign(t[0]-t[1])===Math.sign(s[0]-s[1]);
+                r.mac++;r.tam+=+tam;r.sonuc+=+dogru;
+                if(h.jokerler && h.jokerler[who]===i){r.banko++;r.bankoTam+=+tam;r.bankoDogru+=+dogru;}
+                for(const idx of [m.e,m.d]){const v=r.takimlar[idx]||(r.takimlar[idx]={mac:0,tam:0,dogru:0});v.mac++;v.tam+=+tam;v.dogru+=+dogru;}
+            });
+        }
+        r.form=r.form.slice(-5);return r;
+    }
+    function duel(weeks,a,b){
+        const r={a:0,b:0,berabere:0,puanA:0,puanB:0,haftalar:[]};
+        for(const h of weeks||[]){if(!has(h.tahminler,a)||!has(h.tahminler,b))continue;
+            const pa=Number((h.puanlar && h.puanlar[a])||0),pb=Number((h.puanlar && h.puanlar[b])||0);
+            pa>pb?r.a++:pb>pa?r.b++:r.berabere++;r.puanA+=pa;r.puanB+=pb;r.haftalar.push({no:h.no,a:pa,b:pb});
+        }return r;
+    }
+    function summary(weeks,index){
+        const h=weeks[index];if(!h)return null;
+        const sirali=rank(h.puanlar),lider=sirali.filter(x=>x.sira===1),tekler=[],surprizler=[];
+        (h.maclar||[]).forEach((m,i)=>{
+            const sn=h.sonuclar && h.sonuclar[i];if(!valid(sn))return;
+            const rows=Object.entries(h.tahminler||{}).filter(([,th])=>valid(th[i]));
+            const tam=rows.filter(([,th])=>th[i][0]===sn[0]&&th[i][1]===sn[1]);
+            const dogru=rows.filter(([,th])=>Math.sign(th[i][0]-th[i][1])===Math.sign(sn[0]-sn[1]));
+            if(tam.length===1 && rows.length>1)tekler.push({i,slug:tam[0][0]});
+            if(rows.length>1)surprizler.push({i,dogru:dogru.length,toplam:rows.length,oran:dogru.length/rows.length});
+        });
+        surprizler.sort((a,b)=>a.oran-b.oran||a.i-b.i);
+        const once={},sonra={};for(let j=0;j<=index;j++)for(const [sl,p] of Object.entries(weeks[j].puanlar||{})){sonra[sl]=(sonra[sl]||0)+p;if(j<index)once[sl]=(once[sl]||0)+p;}
+        const eski=Object.fromEntries(rank(once).map(x=>[x.slug,x.sira]));
+        const hareket=rank(sonra).map(x=>({...x,fark:has(eski,x.slug)?eski[x.slug]-x.sira:null}));
+        return {h,sirali,lider,tekler,surpriz:surprizler[0]||null,hareket};
+    }
+    const percent=(a,b)=>b?Math.round(100*a/b)+'%':'—';
+    const stamp=weeks=>JSON.stringify((weeks||[]).map(h=>[h.no,h.sonuclar]));
+    const eventTime=o=>{
+        const raw=o.strTimestamp || (o.dateEvent&&o.strTime?String(o.dateEvent)+'T'+String(o.strTime).trim():null);
+        if(!raw)return null;
+        const ts=String(raw).trim().replace(' ','T');
+        if(/^\d{10,13}$/.test(ts)){const n=Number(ts);return n<1e12?n*1000:n;}
+        if(/[zZ]$|[+-]\d{2}:?\d{2}$/.test(ts)){const n=Date.parse(ts);return Number.isFinite(n)?n:null;}
+        const n=Date.parse(ts+'+03:00');
+        return Number.isFinite(n)?n:null;
+    };
+    function finalScore(o){
+        if(!['FT','AET','PEN','MATCH FINISHED','FINISHED'].includes(String(o.strStatus||'').toUpperCase().trim()))return null;
+        if(o.intHomeScore==null||o.intAwayScore==null||String(o.intHomeScore).trim()===''||String(o.intAwayScore).trim()==='')return null;
+        const s=[Number(o.intHomeScore),Number(o.intAwayScore)];return valid(s)?s:null;
+    }
+    return {rank,stats,duel,summary,percent,stamp,eventTime,finalScore,valid};
+})();
+async function sporVerisi(hafta,signal){
+    const url=`https://www.thesportsdb.com/api/v1/json/${TSDB.anahtar}/eventsround.php?id=${TSDB.lig}&r=${hafta}&s=${TSDB.sezon}`;
+    const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),15000);
+    const cancel=()=>controller.abort();if(signal)signal.addEventListener('abort',cancel,{once:true});
+    try{
+        if(signal && signal.aborted)throw new Error('İstek iptal edildi.');
+        const r=await fetch(url,{signal:controller.signal});
+        if(!r.ok)throw new Error(r.status===429?'Sonuç servisi yoğun. Birkaç dakika sonra tekrar dene.':'Sonuç servisine ulaşılamadı ('+r.status+').');
+        const d=await r.json();
+        const list=d.events;if(!Array.isArray(list)||!list.length)throw new Error('Bu hafta için veri yok. Hazır fikstürü veya elle girişi kullanabilirsin.');
+        const events=list.filter(o=>String(o.idLeague)===TSDB.lig && String(o.strSeason)===TSDB.sezon && Number(o.intRound)===Number(hafta));
+        if(!events.length)throw new Error('Servisten gelen sezon/hafta verisi eşleşmiyor. Elle kontrol et.');return events;
+    }finally{clearTimeout(timer);if(signal)signal.removeEventListener('abort',cancel);}
+}
+function dosyaIndir(blob,name){const u=URL.createObjectURL(blob),a=document.createElement('a');a.href=u;a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(u),60000);}
+async function kuponZipPaylas(){
+    const r=await fetch("/kupon-github.zip");
+    if(!r.ok)throw new Error("dosya yok");
+    const blob=await r.blob();
+    const file=new File([blob],"kupon-github.zip",{type:"application/zip"});
+    if(navigator.canShare&&navigator.canShare({files:[file]})){
+        await navigator.share({files:[file],title:"kupon-github.zip"});
+        return "paylasildi";
+    }
+    throw new Error("paylasim yok");
+}
+async function kuponHtmlKopyala(){
+    const r=await fetch("/kupon.html");
+    if(!r.ok)throw new Error("dosya yok");
+    const html=await r.text();
+    if(navigator.clipboard&&navigator.clipboard.writeText){
+        try{await navigator.clipboard.writeText(html);return;}catch(_){/* iOS iframe */}
+    }
+    const ta=document.createElement("textarea");
+    ta.value=html;
+    ta.setAttribute("readonly","");
+    ta.style.cssText="position:fixed;left:0;top:0;width:1px;height:1px;opacity:0";
+    document.body.appendChild(ta);
+    ta.focus();
+    ta.select();
+    ta.setSelectionRange(0,html.length);
+    const ok=document.execCommand("copy");
+    ta.remove();
+    if(!ok)throw new Error("kopyalanamadi");
+}
+async function kuponHtmlIndir(){
+    try{
+        return await kuponZipPaylas();
+    }catch(e){
+        if(e&&e.name==="AbortError")return "iptal";
+    }
+    await kuponHtmlKopyala();
+    return "kopyalandi";
+}
+
+export function Kupon() {
+    const [ekran, setEkran] = useState("giris");
+    const [sekme, setSekme] = useState("merkez");
+    const [lig, setLig] = useState("");
+    const [isim, setIsim] = useState("");
+    const [ben, setBen] = useState(null);
+    const [kurulum, setKurulum] = useState(null);
+    const [aktif, setAktif] = useState(null);
+    const [tablo, setTablo] = useState(null);
+    const [portfoy, setPortfoy] = useState({});
+    const [kuponlar, setKuponlar] = useState({});
+    const [benimKupon, setBenimKupon] = useState(null);
+    const [bilgi, setBilgi] = useState("");
+    const [mesgul, setMesgul] = useState(false);
+    const [yukleniyor, setYukleniyor] = useState(false);
+    const [yeniMac, setYeniMac] = useState({ liste: [], bekleyen: null });
+    const [sonucGiris, setSonucGiris] = useState(null);
+    const [takimDuzen, setTakimDuzen] = useState(null);
+    const [portfoySecim, setPortfoySecim] = useState([]);
+    const [resmi, setResmi] = useState(null);
+    const [resmiTaslak, setResmiTaslak] = useState(null);
+    const [kuponOnay, setKuponOnay] = useState(false);
+    const [portfoyAcik, setPortfoyAcik] = useState(false);
+    const [pinEkrani, setPinEkrani] = useState(null);
+    const [pin, setPin] = useState("");
+    const [pin2, setPin2] = useState("");
+    const [pinHata, setPinHata] = useState("");
+    const [beklenenGiris, setBeklenenGiris] = useState(String(TAKMA_ADLAR.length));
+    const [cekiyor, setCekiyor] = useState(false);
+    const [acikHafta, setAcikHafta] = useState(null);
+    const [duzeltHafta, setDuzeltHafta] = useState(null);
+    const [magaza, setMagaza] = useState(MAGAZA_BOS);
+    const [zekatMiktar, setZekatMiktar] = useState("");
+    const [zekatOnay, setZekatOnay] = useState(false);
+    const [erzakOnay, setErzakOnay] = useState(false);
+    const [satinOnay, setSatinOnay] = useState(null);
+    const [anket, setAnket] = useState({});
+    const [mansetKapali, setMansetKapali] = useState(false);
+    const [transfer, setTransfer] = useState(null);
+    const [trSat, setTrSat] = useState(null);
+    const [trAl, setTrAl] = useState(null);
+    const [trOnay, setTrOnay] = useState(false);
+    const [ayakta, setAyakta] = useState(AYAKTA_BOS);
+    const [aySec, setAySec] = useState(null);
+    const [ayGirisOnay, setAyGirisOnay] = useState(false);
+    const [aySecOnay, setAySecOnay] = useState(false);
+    /* Sonuç girme yetkisi ligi kuran kişide. Eski kayıtlarda kuran alanı
+       yoksa oyuncu listesinin ilk kişisi kurucu sayılır. */
+    const kurucuSlug = (kurulum && kurulum.kuran)
+        || (kurulum && kurulum.oyuncular && kurulum.oyuncular[0] && kurulum.oyuncular[0].slug)
+        || null;
+    const kurucuMu = !MISAFIR && !!(ben && kurucuSlug && ben.slug === kurucuSlug);
+    const kurucuAdi = (() => {
+        const o = ((kurulum && kurulum.oyuncular) || []).find(x => x.slug === kurucuSlug);
+        return o ? o.isim : "grubu kuran ki\u015Fi";
+    })();
+    const takimlar = (kurulum === null || kurulum === void 0 ? void 0 : kurulum.takimlar) || VARSAYILAN_TAKIMLAR;
+    const T = (i) => takimlar[i] || { ad: "?", kod: "?", guc: 60 };
+    const islemRef = useRef(false);
+    const [sonTeslim, setSonTeslim] = useState("");
+    const [simdi, setSimdi] = useState(Date.now());
+    useEffect(() => {
+        const teslimAcik = !!(aktif && Number.isFinite(aktif.sonTeslim) && Date.now() < aktif.sonTeslim);
+        const trAcik = !!(transfer && !transfer.uygulandi && Date.now() < transfer.kapanis);
+        const t = setInterval(() => setSimdi(Date.now()), (teslimAcik || trAcik) ? 1000 : 30000);
+        return () => clearInterval(t);
+    }, [aktif && aktif.sonTeslim, transfer && transfer.kapanis, transfer && transfer.uygulandi]);
+    useEffect(() => { setMansetKapali(false); }, [(tablo && tablo.haftalar && tablo.haftalar.length) || 0]);
+    useEffect(() => { setAySec(null); setAySecOnay(false); setAyGirisOnay(false); }, [aktif && aktif.hafta]);
+    const teslimKapali = !aktif || !Number.isFinite(aktif.sonTeslim) || simdi >= aktif.sonTeslim;
+    const ilkMacZaman = (function () {
+        if (!aktif) return null;
+        const baslar = (aktif.maclar || []).map(function (m) { return Number.isFinite(m.baslangic) ? m.baslangic : null; }).filter(function (t) { return t != null; });
+        if (baslar.length) return Math.min.apply(null, baslar);
+        return Number.isFinite(aktif.sonTeslim) ? aktif.sonTeslim : null;
+    })();
+    const ilkMacBasladi = ilkMacZaman != null && simdi >= ilkMacZaman;
+    const ruletKapali = teslimKapali || ilkMacBasladi;
+    const teslimZamani = () => Date.parse(sonTeslim + ":00+03:00");
+    function kurucuKontrol() {
+        if (!kurucuMu) throw new Error("Bu işlemi yalnızca " + kurucuAdi + " yapabilir.");
+    }
+    async function guvenliIslem(fn) {
+        if (MISAFIR) { setBilgi("Misafir görünümü salt okunur."); return; }
+        if (islemRef.current) return;
+        islemRef.current = true; setMesgul(true);
+        try { await fn(); }
+        catch (e) { setBilgi(e.message || "İşlem tamamlanamadı. Tekrar dene."); }
+        finally { islemRef.current = false; setMesgul(false); }
+    }
+    async function teslimBelirle() {
+        kurucuKontrol();
+        const zaman = teslimZamani();
+        if (!Number.isFinite(zaman)) throw new Error("İlk maçın tarih ve saatini gir.");
+        const kayit = await depo.get(`kpn:${lig}:aktif`);
+        const a = kayit && okuJSON(kayit.value, null);
+        if (!a || a.hafta !== aktif.hafta || Number.isFinite(a.sonTeslim)) throw new Error("Hafta değişti veya teslim saati zaten belirlenmiş. Sayfayı yenile.");
+        const yeni = { ...a, sonTeslim: zaman };
+        await depo.kosulluSet(`kpn:${lig}:aktif`, JSON.stringify(yeni), kayit.value);
+        setAktif(yeni); setSimdi(Date.now());
+        setBilgi("Teslim saati kaydedildi. Bu saatten sonra yeni kupon alınmaz.");
+    }
+    function TeslimAlani() {
+        return React.createElement("label", { style: { display: "block", marginTop: 12, fontSize: 13 } },
+            "İlk maçın başlangıcı · Türkiye saati",
+            React.createElement("input", { type: "datetime-local", className: "kp-gir", value: sonTeslim,
+                onChange: e => setSonTeslim(e.target.value), style: { marginTop: 8 }, required: true }));
+    }
+    /* Pro screens and read-only automatic result checking. */
+    const [merkezSekme,setMerkezSekme]=useState('ozet');
+    const [ozetHafta,setOzetHafta]=useState('');
+    const [rakip,setRakip]=useState('');
+    const [istatistikKisi,setIstatistikKisi]=useState('');
+    const [otomatik,setOtomatik]=useState(()=>{try{return localStorage.getItem('kpn:otomatik')!=='0';}catch{return true;}});
+    const [sporDurum,setSporDurum]=useState({hafta:null,sonuclar:{},zaman:null,hata:'',mesgul:false});
+    const [paylasim,setPaylasim]=useState(null);
+    const [kartUrl,setKartUrl]=useState('');
+    const [duzeltNeden,setDuzeltNeden]=useState('');
+    const [ekGunluk,setEkGunluk]=useState([]);
+    const [gunlukDurum,setGunlukDurum]=useState('');
+    const sporRef=useRef(false);
+    useEffect(()=>{try{localStorage.setItem('kpn:otomatik',otomatik?'1':'0');}catch{}},[otomatik]);
+    useEffect(()=>{
+        if(!paylasim){setKartUrl('');return;}
+        const u=URL.createObjectURL(paylasim.blob);setKartUrl(u);return()=>URL.revokeObjectURL(u);
+    },[paylasim]);
+    useEffect(()=>{setSporDurum({hafta:null,sonuclar:{},zaman:null,hata:'',mesgul:false});setPaylasim(null);setEkGunluk([]);setOzetHafta('');setRakip('');setIstatistikKisi('');},[lig]);
+    useEffect(()=>{
+        if(!otomatik || !aktif || ekran!=='oyun')return;
+        const baslar=(aktif.maclar||[]).map(m=>Number.isFinite(m.baslangic)?m.baslangic:null).filter(t=>t!=null);
+        const ilk=baslar.length?Math.min(...baslar):(Number.isFinite(aktif.sonTeslim)?aktif.sonTeslim:Date.now());
+        let iptal=false;const controller=new AbortController();
+        let intervalId,timeoutId;
+        async function run(){
+            if(document.hidden||sporRef.current||iptal)return;sporRef.current=true;
+            try{const events=await sporVerisi(aktif.hafta,controller.signal);if(!iptal)setSporDurum({hafta:aktif.hafta,sonuclar:sonucHaritasi(events),zaman:Date.now(),hata:'',mesgul:false});}
+            catch(e){if(!iptal)setSporDurum(v=>({...v,hata:e.message,mesgul:false}));}
+            finally{sporRef.current=false;}
+        }
+        function start(){run();intervalId=setInterval(run,180000);}
+        const delay=ilk-Date.now();
+        if(delay>0)timeoutId=setTimeout(start,delay);else start();
+        return()=>{iptal=true;clearInterval(intervalId);clearTimeout(timeoutId);controller.abort();};
+    },[otomatik,aktif && aktif.hafta,lig,ekran]);
+    function sonucHaritasi(events){
+        const map={};for(const o of events){const e=apiEslesme(o.strHomeTeam),d=apiEslesme(o.strAwayTeam),s=KAnaliz.finalScore(o);if(e&&d&&s)map[e+'>'+d]=s;}return map;
+    }
+    async function sporYenile(){
+        if(!aktif||sporRef.current)return;sporRef.current=true;setSporDurum(v=>({...v,mesgul:true}));
+        try{const events=await sporVerisi(aktif.hafta);setSporDurum({hafta:aktif.hafta,sonuclar:sonucHaritasi(events),zaman:Date.now(),hata:'',mesgul:false});}
+        catch(e){setSporDurum(v=>({...v,hata:e.message,mesgul:false}));}finally{sporRef.current=false;}
+    }
+    async function fiksturCek(){
+        kurucuKontrol();const events=await sporVerisi(gelecekHafta),seen=new Set(),liste=[];let baslangic=Infinity;
+        for(const o of events){
+            const ec=apiEslesme(o.strHomeTeam),dc=apiEslesme(o.strAwayTeam);
+            const e=takimlar.findIndex(t=>kodEslesmesi(t.kod)===ec),d=takimlar.findIndex(t=>kodEslesmesi(t.kod)===dc);
+            if(e<0||d<0||e===d||seen.has(e)||seen.has(d))throw new Error('Fikstür eksik veya takım eşleşmesi belirsiz. Hazır listeyi kontrol ederek kullan.');
+            const time=KAnaliz.eventTime(o);if(time===null)throw new Error('Bazı maçların saati belli değil. İlk maç saatini elle gir.');
+            seen.add(e);seen.add(d);liste.push({e,d,baslangic:time,olay:o.idEvent});baslangic=Math.min(baslangic,time);
+        }
+        if(liste.length!==Math.floor(takimlar.length/2))throw new Error('Servis tam haftayı döndürmedi. Eksik fikstür yüklenmedi.');
+        if(baslangic<=Date.now())throw new Error('Bu haftanın ilk maçı başlamış. Geçmiş maçlar için yeni tahmin haftası açılmaz.');
+        liste.sort((a,b)=>a.baslangic-b.baslangic);setYeniMac({liste,bekleyen:null});
+        setSonTeslim(new Date(baslangic+3*3600000).toISOString().slice(0,16));setBilgi('Fikstür ve Türkiye saati yüklendi. Kontrol edip haftayı aç.');
+    }
+    function audit(type,detail,changes=[]){return {id:Date.now()+'-'+Math.random().toString(36).slice(2),zaman:Date.now(),kisi:ben.isim,tur:type,detay:detail,degisiklikler:changes};}
+    async function gunlukYaz(entry){
+        try{await depo.kosulluSet(`kpn:${lig}:gunluk:${entry.id}`,JSON.stringify(entry),null);setEkGunluk(v=>[entry,...v]);}
+        catch{setBilgi('İşlem kaydedildi; işlem geçmişi kaydedilemedi. Bağlantını kontrol et.');}
+    }
+    async function gunlukYukle(){
+        setGunlukDurum('Yükleniyor…');
+        try{const l=await depo.list(`kpn:${lig}:gunluk:`);const keys=((l && l.keys)||[]).sort().reverse().slice(0,50);const rows=await depo.getMany(keys);setEkGunluk(rows.filter(x=>x && x.value).map(x=>okuJSON(x.value,null)).filter(Boolean));setGunlukDurum('Son 50 ek işlem gösterilir.');}
+        catch{setGunlukDurum('İşlem geçmişi alınamadı. Tekrar dene.');}
+    }
+    async function kartHazirla(h){
+        const c=document.createElement('canvas');c.width=1080;
+        const list=KAnaliz.rank(h.puanlar),shown=list.slice(0,10);c.height=510+shown.length*88;
+        const g=c.getContext('2d');if(!g)throw new Error('Bu cihaz görsel oluşturmayı desteklemiyor.');
+        g.fillStyle='#F3E8D6';g.fillRect(0,0,c.width,c.height);
+        g.fillStyle='#9C4B3A';g.fillRect(64,64,56,4);g.font='italic 72px Georgia,serif';g.fillStyle='#2C241C';g.fillText('Kupon',64,168);
+        g.fillStyle='#7A6E60';g.font='22px system-ui';g.fillText(lig.toUpperCase().slice(0,20)+'  ·  '+TSDB.sezon,64,214);
+        g.fillStyle='#2C241C';g.font='bold 40px system-ui';g.fillText(h.no+'. HAFTANIN SONUÇLARI',64,292);
+        g.fillStyle='#7A6E60';g.font='22px system-ui';g.fillText('Haftalık tahmin puanı  ·  eşit puanlar aynı sırada',64,336);
+        shown.forEach((x,i)=>{
+            const y=407+i*88;g.fillStyle=x.sira===1?'#FFF8EC':'#EDE0CC';g.fillRect(64,y-33,952,70);
+            g.fillStyle='#2C241C';g.font='bold 30px ui-monospace,monospace';g.fillText(String(x.sira).padStart(2,'0'),86,y+12);
+            const oyuncu=kurulum.oyuncular.find(o=>o.slug===x.slug);
+            const name=((h.isimler && h.isimler[x.slug])||(oyuncu && oyuncu.isim)||x.slug).slice(0,24);g.fillText(name,164,y+12);
+            g.textAlign='right';g.fillText(x.puan+' P',985,y+12);g.textAlign='left';
+        });
+        g.fillStyle='#7A6E60';g.font='22px system-ui';g.fillText(list.length>10?'İlk 10 oyuncu • Tam tablo oyunda':'Arkadaşlar arasında, sezon boyunca.',64,c.height-48);
+        const blob=await new Promise(resolve=>c.toBlob(resolve,'image/png'));if(!blob)throw new Error('Görsel hazırlanamadı.');
+        setPaylasim({blob,name:'kupon-hafta-'+h.no+'.png',hafta:h.no});setBilgi('Haftalık kart hazır. İndir veya paylaş.');
+    }
+    async function kartPaylas(){
+        if(!paylasim)return;const f=new File([paylasim.blob],paylasim.name,{type:'image/png'});
+        try{if(navigator.canShare && navigator.canShare({files:[f]}))await navigator.share({files:[f],title:'Kupon • '+paylasim.hafta+'. hafta'});else dosyaIndir(paylasim.blob,paylasim.name);}
+        catch(e){if(e.name!=='AbortError')setBilgi('Paylaşım açılamadı. Görseli indirip paylaşabilirsin.');}
+    }
+    function yedekIndir(){
+        const data={format:'kupon-arsiv-v1',zaman:new Date().toISOString(),lig,sezon:TSDB.sezon,takimlar,oyuncular:kurulum.oyuncular,tablo,resmi,portfoy:portfoyAcik?portfoy:undefined,magaza,ayakta};
+        dosyaIndir(new Blob([JSON.stringify(data,null,2)],{type:'application/json'}),'kupon-'+lig+'-arsiv.json');
+    }
+    const H=React.createElement;
+    const prText=(text)=>H('p',{className:'pr-muted'},text);
+    const prMetric=(label,value,sub)=>H('div',{className:'pr-metric'},H('span',null,label),H('strong',null,value),sub&&H('small',null,sub));
+    function merkezGorunumu(){
+        if (!kurulum || !ben) return H('div',{className:'kp-kat'},prText('Grup yükleniyor.'));
+        const weeks=(tablo && tablo.haftalar)||[],index=ozetHafta===''?weeks.length-1:weeks.findIndex(h=>String(h.no)===ozetHafta),sum=KAnaliz.summary(weeks,index);
+        const name=sl=>{
+            const o=kurulum.oyuncular.find(x=>x.slug===sl);
+            return (o && o.isim) || (sum && sum.h && sum.h.isimler && sum.h.isimler[sl]) || sl;
+        };
+        const who=istatistikKisi||ben.slug,st=KAnaliz.stats(weeks,who),opponents=kurulum.oyuncular.filter(o=>o.slug!==ben.slug),other=opponents.some(o=>o.slug===rakip)?rakip:(opponents[0] && opponents[0].slug);
+        const du=other?KAnaliz.duel(weeks,ben.slug,other):null;
+        const match=(h,i)=>T(h.maclar[i].e).ad+' '+h.sonuclar[i].join('–')+' '+T(h.maclar[i].d).ad;
+        return H('section',{className:'pr-root'},
+            H('div',{className:'pr-hero'},
+                H('div',{className:'pr-catisma'},React.createElement(CatismaFiguru),H('h1',{className:'kp-h'},'Sezon merkezi.')),
+                gazeteGorunumu(true)),
+            anketGorunumu(),
+            H('div',{className:'pr-tabs','aria-label':'Sezon merkezi bölümleri'},[['ozet','Haftalık özet'],['rekabet','Rekabet'],['istatistik','İstatistik'],['koleksiyon','Koleksiyon'],['gecmis','İşlemler'],['ayar','Ayarlar']].map(([id,label])=>H('button',{key:id,className:merkezSekme===id?'on':'','aria-pressed':merkezSekme===id,onClick:()=>{setMerkezSekme(id);if(id==='gecmis')gunlukYukle();}},label))),
+            merkezSekme==='ozet'&&H(React.Fragment,null,
+                weeks.length?H('label',{className:'pr-label'},'Hafta seç',H('select',{className:'kp-gir',value:sum?String(sum.h.no):'',onChange:e=>{setOzetHafta(e.target.value);setPaylasim(null);}},[...weeks].reverse().map(h=>H('option',{key:h.no,value:String(h.no)},h.no+'. hafta')))):null,
+                !sum?H('div',{className:'kp-kat'},H('h2',null,'İlk hafta henüz kapanmadı.'),prText('İlk kuponlar puanlanınca kazanan ve öne çıkan tahminler burada durur.')):H(React.Fragment,null,
+                    H('div',{className:'pr-winner'},H('div',{className:'kp-et'},sum.lider.length>1?'HAFTANIN ORTAK LİDERLERİ':'HAFTANIN LİDERİ'),H('h2',null,sum.lider.length?sum.lider.map(x=>name(x.slug)).join(' & '):'Kupon verilmedi'),H('strong',{className:'pr-big'},((sum.lider[0] && sum.lider[0].puan)||0)+' puan'),prText(sum.h.no+'. hafta • Yalnızca haftalık tahmin puanı')),
+                    sum.surpriz&&H('div',{className:'kp-kat'},H('div',{className:'kp-et'},'EN AZ BİLİNEN SONUÇ'),H('h3',null,match(sum.h,sum.surpriz.i)),prText(sum.surpriz.toplam+' kişiden '+sum.surpriz.dogru+' kişi sonucu bildi. Bu değerlendirme grubun tahminlerine dayanır.')),
+                    sum.tekler.length>0&&H('div',{className:'kp-kat'},H('div',{className:'kp-et'},'TEK BİLENLER'),sum.tekler.map(x=>H('div',{className:'pr-row',key:x.i},H('strong',null,name(x.slug)),H('span',null,match(sum.h,x.i))))),
+                    H('div',{className:'kp-kat'},H('div',{className:'kp-et'},'KUPON KLASMANINDA HAREKET'),prText('Bu haftaya kadar biriken tahmin puanları; portföy hariç.'),sum.hareket.map(x=>H('div',{className:'pr-row',key:x.slug},H('span',null,x.sira+'. '+name(x.slug)),H('strong',{className:x.fark>0?'pr-green':''},x.fark===null?'Yeni':x.fark>0?'↑ '+x.fark:x.fark<0?'↓ '+Math.abs(x.fark):'—')))),
+                    sum.h.kartlar&&Object.keys(sum.h.kartlar).length?H('div',{className:'kp-kat'},H('div',{className:'kp-et'},'OLAY KARTLARI'),Object.keys(sum.h.kartlar).map(sl=>{const k=sum.h.kartlar[sl],kp=(sum.h.kartPuan&&sum.h.kartPuan[sl])||0,m=sum.h.maclar[k.mac];return H('div',{className:'pr-row',key:sl},H('span',null,name(sl)+' · '+kartEtiket(k.tur)+(m?' · '+T(m.e).kod+'–'+T(m.d).kod:'')),H('strong',{className:kp>0?'pr-green':''},kp>0?'+'+kp:'0'));})):null,
+                    H('button',{className:'kp-dg',disabled:mesgul,onClick:()=>guvenliIslem(()=>kartHazirla(sum.h))},'Haftalık paylaşım kartı hazırla'),
+                    paylasim&&paylasim.hafta===sum.h.no&&H('div',{className:'kp-kat',style:{marginTop:12}},kartUrl&&H('img',{className:'pr-card-preview',src:kartUrl,alt:sum.h.no+'. haftanın sonuç kartı'}),H('div',{className:'pr-actions'},H('button',{className:'kp-dg2',onClick:()=>dosyaIndir(paylasim.blob,paylasim.name)},'PNG indir'),H('button',{className:'kp-dg2',onClick:kartPaylas},'Paylaş'))))),
+            merkezSekme==='rekabet'&&H(React.Fragment,null,
+                !du?H('div',{className:'kp-kat'},prText('Karşılaştırma için gruba bir oyuncu daha katılmalı.')):H(React.Fragment,null,
+                    H('label',{className:'pr-label'},'Rakibin',H('select',{className:'kp-gir',value:other,onChange:e=>setRakip(e.target.value)},opponents.map(o=>H('option',{key:o.slug,value:o.slug},o.isim)))),
+                    H('div',{className:'pr-versus'},H('span',null,ben.isim),H('strong',null,du.a+' : '+du.b),H('span',null,name(other))),
+                    H('div',{className:'pr-grid'},prMetric('Beraberlik',du.berabere,'hafta'),prMetric('Ortak katılım',du.haftalar.length,'hafta')),
+                    prText('Yalnızca ikinizin de kupon verdiği haftalar karşılaştırılır. Portföy dahil değildir.'),
+                    H('div',{className:'kp-kat'},H('div',{className:'pr-row'},H('strong',null,'Ortak haftalarda toplam'),H('strong',null,du.puanA+' – '+du.puanB)),[...du.haftalar].reverse().map(h=>H('div',{className:'pr-row',key:h.no},H('span',null,h.no+'. hafta'),H('strong',null,h.a+' – '+h.b)))),!du.haftalar.length&&prText('İkinizin de katıldığı ilk hafta tamamlanınca karşılaştırma başlayacak.'))),
+            merkezSekme==='istatistik'&&H(React.Fragment,null,
+                H('label',{className:'pr-label'},'Oyuncu',H('select',{className:'kp-gir',value:who,onChange:e=>setIstatistikKisi(e.target.value)},kurulum.oyuncular.map(o=>H('option',{key:o.slug,value:o.slug},o.isim)))),
+                H('div',{className:'pr-grid'},prMetric('Tam skor',KAnaliz.percent(st.tam,st.mac),st.tam+'/'+st.mac+' maç'),prMetric('Doğru sonuç',KAnaliz.percent(st.sonuc,st.mac),st.sonuc+'/'+st.mac+' maç'),prMetric('Banko tam skor',KAnaliz.percent(st.bankoTam,st.banko),st.bankoTam+'/'+st.banko+' banko'),prMetric('En iyi hafta',st.enIyi?st.enIyi.puan+' p':'—',st.enIyi?st.enIyi.no+'. hafta':'Henüz veri yok')),
+                H('div',{className:'kp-kat'},H('div',{className:'kp-et'},'SON 5 KATILIM'),!st.form.length?prText('İlk kuponun puanlanınca istatistiklerin burada durur.'):H('div',{className:'pr-form'},st.form.map(x=>H('div',{key:x.no},H('strong',null,x.puan),H('span',null,x.no+'. hafta'))))),
+                H('div',{className:'kp-kat'},H('div',{className:'kp-et'},'TAKIM BAZINDA TAHMİN BAŞARISI'),prText('Doğru sonuç oranı; az maçlı örnekler yanıltıcı olabilir.'),Object.entries(st.takimlar).sort((a,b)=>b[1].dogru/b[1].mac-a[1].dogru/a[1].mac||b[1].mac-a[1].mac).map(([idx,x])=>H('div',{className:'pr-row',key:idx},H('span',null,T(+idx).ad),H('strong',null,KAnaliz.percent(x.dogru,x.mac)+' · '+x.dogru+'/'+x.mac))))),
+            merkezSekme==='koleksiyon'&&(function(){
+                const oy=((kurulum&&kurulum.oyuncular)||[]);
+                const kol=oy.map(o=>({o,k:koleksiyon(o.slug)}));
+                const sahipler={};
+                ROZET_TANIM.forEach(r=>{sahipler[r.id]=[];});
+                kol.forEach(x=>x.k.rozet.forEach(r=>{if(sahipler[r.id])sahipler[r.id].push(x.o);}));
+                const baron=oy.slice().sort((a,b)=>portfoyPuan(b.slug)-portfoyPuan(a.slug))[0];
+                const tamSay=sl=>((tablo&&tablo.haftalar)||[]).reduce((s,h)=>s+((h.detay&&h.detay[sl])||[]).filter(tamSkorPuani).length,0);
+                const kirmizi=oy.slice().sort((a,b)=>tamSay(b.slug)-tamSay(a.slug))[0];
+                const mansetSay=sl=>{
+                    let n=0;
+                    ((tablo&&tablo.haftalar)||[]).forEach(h=>{
+                        const od=haftaOdul(h);
+                        if(od.some(x=>x.unvan==='alim'&&x.slug===sl))n++;
+                        if(od.some(x=>x.unvan==='dallama'&&x.slug===sl))n++;
+                        if((rezaletListesi(h)[0]||{}).slug===sl)n++;
+                    });
+                    return n;
+                };
+                const gazete=oy.slice().sort((a,b)=>mansetSay(b.slug)-mansetSay(a.slug))[0];
+                return H(React.Fragment,null,
+                    H('div',{className:'kp-kat'},H('div',{className:'kp-et'},'Rozetler'),prText('Kalıcı başarılar. Zor basılır; eşitlikte veya erken sezonda verilmez. Kimde hangisi varsa ve ne gerektiği aşağıda.'),
+                        ROZET_TANIM.map(r=>H('div',{key:r.id,className:'rz-soz'},
+                            H('div',{className:'rz-soz-ust'},
+                                H('span',{className:'rz-cip'},r.ad),
+                                H('span',{className:'rz-soz-kim'},
+                                    sahipler[r.id].length
+                                        ? sahipler[r.id].map(o=>H('span',{key:o.slug,title:o.isim},H(Yuz,{isim:o.isim,boy:26})))
+                                        : H('em',null,'Henüz yok'))),
+                            H('p',{className:'rz-soz-acik'},r.acik)))),
+                    H('div',{className:'kp-kat'},H('div',{className:'kp-et'},'Çerçeveler · sezon sonu'),prText('Şimdilik kim önde, sezon bitince basılır.'),
+                        H('div',{className:'cr-sat'},H('span',null,'Altın · şampiyon'),H('strong',null,(klasman[0]&&klasman[0].isim)||'—')),
+                        H('div',{className:'cr-sat'},H('span',null,'Kırmızı mühür · tam skor'),H('strong',null,kirmizi?kirmizi.isim+' · '+tamSay(kirmizi.slug):'—')),
+                        H('div',{className:'cr-sat'},H('span',null,'Yeşil · portföy'),H('strong',null,baron?baron.isim+' · '+portfoyPuan(baron.slug):'—')),
+                        H('div',{className:'cr-sat'},H('span',null,'Manşet'),H('strong',null,gazete?gazete.isim+' · '+mansetSay(gazete.slug):'—'))));
+            })(),
+            merkezSekme==='gecmis'&&H('div',{className:'kp-kat'},H('h2',null,'İşlem geçmişi'),prText('Bu sürümden itibaren kaydedilen işlemler. Eski değişiklikler geriye dönük oluşturulmaz.'),
+                H('button',{className:'kp-dg2',onClick:gunlukYukle},'Geçmişi yenile'),prText(gunlukDurum),
+                [...(tablo.gecmis||[]),...ekGunluk].filter((x,i,a)=>a.findIndex(y=>y.id===x.id)===i).sort((a,b)=>b.zaman-a.zaman).map(x=>H('article',{className:'pr-log',key:x.id},H('strong',null,x.tur),prText(x.kisi+' · '+new Date(x.zaman).toLocaleString('tr-TR',{timeZone:'Europe/Istanbul'})),H('p',null,x.detay),(x.degisiklikler||[]).map((d,i)=>H('p',{key:i,className:'pr-muted'},d)))),
+                !(tablo.gecmis||[]).length&&!ekGunluk.length&&prText('Henüz kayıtlı işlem yok.')),
+            merkezSekme==='ayar'&&H(React.Fragment,null,
+                H('div',{className:'kp-kat'},H('h2',null,'Sonuç takibi'),H('label',{className:'pr-toggle'},H('input',{type:'checkbox',checked:otomatik,onChange:e=>setOtomatik(e.target.checked)}),'Uygulama açıkken sonuçları otomatik kontrol et'),prText('Üç dakikada bir kontrol edilir. Yalnızca tamamlandı olarak işaretlenen maçlar alınır. Sonuçları kurucu onaylar; hafta kendiliğinden kapanmaz.'),prText('Veri kaynağı: TheSportsDB • '+TSDB.sezon+'. Servis sınırı veya eksik veri durumunda elle giriş kullanılabilir.')),
+                H('div',{className:'kp-kat'},H('h2',null,'Arşivin'),prText('Tamamlanmış haftaları ve açık portföyleri JSON olarak indir. PIN ve gizli kuponlar dahil edilmez.'),H('button',{className:'kp-dg2',onClick:yedekIndir},'Sezon arşivini indir')),
+                H('div',{className:'kp-kat'},H('h2',null,'Oyun kuralları'),prText('Tam skor 5, doğru gol farkı 3, doğru sonuç 2 puan. Banko iki kat puan verir. En az 5 maçlık haftada tüm sonuçları bilen +5 puan alır.'),prText('Portföy: 70 krediyle 4 takım. Yalnız bir kişinin seçtiği takımın puanı %25 artar. Kuponlar teslimden sonra değiştirilemez. İlk maç başladığında hâlâ kuponu olmayan kişiden 100 €, rulet eli olmayan kişiden 50 € kesilir. Rulet girişi de aynı Keriz Parası kasasına yazılır; ruleti kazanan bu kasayı alır.'),prText('Beraberlik tahmininde doğru sonucu bilmek, gol farkını da bilmek olduğundan 3 puandır. Haftalık ödül eşitlikte o sıraların havuzunu böler. Bankosu tam tutan 1.nin ödülü ikiye katlanır — bu tutar kasaya eklenir.'),prText('Mağaza: biriken ödülle sınırlı stoktan mal alınır. Nakit düşer, servet (nakit + malların bedeli) durur. Zekât yalnızca son kapanan haftanın sonuncusuna gider, en az 0,01 €, geri alınamaz. Market torbası (50 €) isteğe bağlıdır; her kapalı haftada para sıralamasının en düşüğüne gidebilir — zekât alanla aynı kişi olabilir. Nakit yazılmaz, evine erzak sayılır. Herkes o hafta en fazla bir kez gönderir.'),prText('Manşet her kapalı haftanın gazete başlığıdır. Korkunç tahmin mührü, gol uzaklığı 5+ (bankoda 4+) ve 0 puanda basılır. Bidon D\'or anketi: yeni haftada kim Bidon olacak; oy verince kim kime basmış görünür.'),prText('Olay kartı kupona zorunlu. Gol avcısı +3 (haftanın en gollü maçı; eşitlikte hepsi). 0–0 avcısı +4 (haftada 0–0 yoksa puan yok). Sürpriz avcısı +4: kazanan tarafın maç önü yüzdesi %30 veya altı; beraberlik sürprizdir eğer bir taraf %60+ idiyse; birden fazlaysa en düşük gerçekleşen yüzde haftanın sürprizi. Yüzdeler uygulamanın kendi modeli (geçen sezon + lig puanı + son 5), kupon açılınca kilitlenir. Kart kördür; puan klasmana ve haftalık ödüle girer.'),prText('Rozetler sezon içinde basılır ve zor verilir: Baba Vanga (bir haftada 4 tam skor), Wow (8 tutan kart), Hz. Banko (5 ardışık tam banko), Küllerinden doğan (ilk 10 haftayı kupon klasmanında sonuncu kapatıp sonra ilk 2), Portföy Baron’u (10. haftadan sonra 20+ farkla tek lider), Derbi kasabı (derbi skorunu birebir), Kara Kartal modu (sezon boyunca 10 Beşiktaş tam skoru). Ne gerektiği Koleksiyon’da yazıyor. Çerçeveler sezon sonunda: Altın şampiyon, Kırmızı mühür, Yeşil portföy, Manşet.'),prText('Rulet: kupon ve portföyden ayrı. Tura giriş ' + paraYaz(AYAKTA_UCRET) + ', nakitten düşer, Keriz Parası kasasına yazılır. Her hafta bir takım seçersin; yalnız galibiyet yaşatır, berabere ve mağlubiyet eler. Bir takımı turda bir kez kullanırsın. Seçmezsen elenirsin. Her hafta zorunlu. Eller kör: masada yalnız kimlerin girdiği görünür, kimse kimsenin takımını görmez. Kader o kişinin maçı bitince düşer — haftanın tüm maçları beklenmez. Aynı takımı birden fazla kişi seçebilir. Son kalan Keriz Parası kasasını alır (rulet girişleri + katılmayanların cezası). Herkes elenirse kazanan olmaz, kasa sonraki tura kalır.'),prText('Transfer: 17. hafta kapanınca 3 gün, sezonda bir kez. Bir sat, bir al, 5 kredi komisyon. Sattığın takımı geri alamazsın. Seçimler kör; herkes kilitleyince veya süre bitince açılır. Pas da kilitler.'),),
+                kurucuMu&&H('div',{className:'kp-kat'},H('h2',null,'Grup ve portföy'),prText('Kör seçim, kayıtlı herkes kilitleyip beklenen kişi sayısına ulaşınca açılır. Sayıyı burada düzelt; gerekirse portföyleri şimdi aç.'),H('label',{className:'pr-label'},'Gruptaki oyuncu sayısı',H('input',{className:'kp-gir',type:'number',min:2,max:18,inputMode:'numeric',value:beklenenGiris,onChange:e=>setBeklenenGiris(e.target.value.replace(/\D/g,'').slice(0,2))})),H('button',{className:'kp-dg2',disabled:mesgul,onClick:()=>guvenliIslem(()=>beklenenAyarla(beklenenGiris))},'Kişi sayısını kaydet'),prText(kilitleyen+' / '+beklenenOyuncu+' kilitledi · kayıtlı '+toplamOyuncu+' kişi.'),!portfoyAcik&&H('button',{className:'kp-dg2',style:{marginTop:8,width:'100%'},disabled:mesgul,onClick:()=>guvenliIslem(portfoyleriAcSimdi)},'Portföyleri şimdi aç')),
+                kurucuMu&&H('div',{className:'kp-kat'},H('h2',null,'Kurucu bilgisi'),prText('Kurucunun PIN kodu ve tarayıcı saati bu sürümde sunucu kilidi değildir. Gizli kuponlar için veri tabanı yetkisi ayrıca kurulmalıdır.'))));
+    }
+    function gazeteGorunumu(zorla) {
+        const weeks = (tablo && tablo.haftalar) || [];
+        if (!weeks.length || (mansetKapali && !zorla)) return null;
+        const m = mansetUret(weeks[weeks.length - 1]);
+        if (!m) return null;
+        const tarih = new Date(weeks[weeks.length - 1].kapanis || Date.now()).toLocaleDateString("tr-TR", { timeZone: "Europe/Istanbul", day: "numeric", month: "long", year: "numeric" });
+        return H("article", { className: "kp-gazete", "aria-label": "Haftanın manşeti" },
+            !zorla ? H("button", { className: "kp-gazete-kapa", type: "button", "aria-label": "Kapat", onClick: () => setMansetKapali(true) }, "×") : null,
+            H("div", { className: "kp-gazete-name" }, "Kupon"),
+            H("div", { className: "kp-gazete-ust" },
+                H("span", null, "Spor eki"),
+                H("span", null, m.no + ". sayı"),
+                H("span", null, tarih)),
+            H("h2", { className: "kp-gazete-bas" }, m.baslik),
+            H("div", { className: "kp-gazete-govde" },
+                H("p", { className: "kp-gazete-dip" }, m.dip),
+                m.rez[0] ? H("div", { className: "kp-gazete-rz" },
+                    H("span", { className: "kp-rz-muhur" }, RZ_MUHUR),
+                    H("span", { className: "kp-gazete-rz-yazi" }, m.rez[0].isim + " · " + m.rez[0].ev + " " + m.rez[0].t[0] + "–" + m.rez[0].t[1] + " yazdı, " + m.rez[0].sn[0] + "–" + m.rez[0].sn[1] + " oldu")) : null));
+    }
+    function anketGorunumu() {
+        if (!aktif || !kurulum) return null;
+        const hf = String(aktif.hafta);
+        const oylar = (anket && anket[hf]) || {};
+        const benim = oylar[ben.slug];
+        const aday = ((kurulum && kurulum.oyuncular) || []);
+        const say = {};
+        Object.values(oylar).forEach(sl => { say[sl] = (say[sl] || 0) + 1; });
+        return H("div", { className: "kp-kat" },
+            H("div", { className: "kp-et" }, "Bidon D'or anketi"),
+            H("p", { style: { fontSize: 15, fontWeight: 600, margin: "0 0 12px", lineHeight: 1.4 } }, "Yeni haftada kim Bidon olacak?"),
+            benim
+                ? H(React.Fragment, null,
+                    Object.entries(oylar).map(([veren, alan]) => H("div", { key: veren, className: "pr-row" },
+                        H("span", null, oyuncuAd(veren) + " → " + oyuncuAd(alan)),
+                        H("strong", { className: "kp-mono" }, (say[alan] || 0)))))
+                : H("div", { style: { display: "flex", flexWrap: "wrap", gap: 8 } },
+                    aday.map(o => H("button", {
+                        key: o.slug, className: "kp-dg2", type: "button",
+                        style: { width: "auto", padding: "10px 14px", margin: 0 },
+                        disabled: mesgul,
+                        onClick: () => guvenliIslem(() => anketOyVer(o.slug)),
+                    }, o.isim))));
+    }
+
+    /* ---------- otomatik yenileme ----------
+       Veri eskiden yalnızca sayfa ilk açıldığında çekiliyordu; telefon sekmeyi
+       bellekte tuttuğu için kullanıcı uygulamayı "açtığında" eski hafta kalıyordu. */
+    useEffect(() => {
+        if (!lig || !ben) return;
+        let mesgul = false;
+        const tazele = async () => {
+            if (mesgul || document.hidden || islemRef.current) return;
+            mesgul = true;
+            try { await veriYukle(lig, ben.slug); } catch (e) { }
+            mesgul = false;
+        };
+        const gorunurluk = () => { if (!document.hidden) tazele(); };
+        document.addEventListener("visibilitychange", gorunurluk);
+        window.addEventListener("focus", tazele);
+        const saat = setInterval(tazele, 60000);
+        return () => {
+            document.removeEventListener("visibilitychange", gorunurluk);
+            window.removeEventListener("focus", tazele);
+            clearInterval(saat);
+        };
+    }, [lig, ben]);
+    /* ---------- açılış ---------- */
+    useEffect(() => {
+        (async () => {
+            try {
+                if (MISAFIR) {
+                    setYukleniyor(true);
+                    const lg = misafirLigOku();
+                    if (lg) {
+                        setLig(lg);
+                        try { await misafirAc(lg); }
+                        catch (e) { setBilgi(e.message || "Grup bulunamadı."); setEkran("giris"); }
+                    } else setEkran("giris");
+                    setYukleniyor(false);
+                    return;
+                }
+                const k = await depo.get("kpn:kimlik", false);
+                if (k === null || k === void 0 ? void 0 : k.value) {
+                    const p = okuJSON(k.value, null);
+                    if (!p || !p.lig || !p.isim) throw new Error("kimlik");
+                    setYukleniyor(true);
+                    setLig(p.lig);
+                    setIsim(p.isim);
+                    await girisDene(p.lig, p.isim, true);
+                }
+            }
+            catch (e) { }
+            setYukleniyor(false);
+        })();
+    }, []);
+    async function veriYukle(lg, benSlug) {
+        const [ku, ak, tb, pf, rs, pa, mg, an, tr, ay] = await Promise.all([
+            depo.get(`kpn:${lg}:kurulum`), depo.get(`kpn:${lg}:aktif`),
+            depo.get(`kpn:${lg}:tablo`), depo.get(`kpn:${lg}:portfoy`),
+            depo.get(`kpn:${lg}:resmi`), depo.get(`kpn:${lg}:portfoyAcik`),
+            depo.get(`kpn:${lg}:magaza`), depo.get(`kpn:${lg}:anket`),
+            depo.get(`kpn:${lg}:transfer`), depo.get(`kpn:${lg}:ayakta`),
+        ]);
+        const kur = okuJSON(ku === null || ku === void 0 ? void 0 : ku.value, null);
+        const akt = okuJSON(ak === null || ak === void 0 ? void 0 : ak.value, null);
+        const tbl = okuJSON(tb === null || tb === void 0 ? void 0 : tb.value, { toplam: {}, haftalar: [], ligTablo: {} }) || { toplam: {}, haftalar: [], ligTablo: {} };
+        const pfy = okuJSON(pf === null || pf === void 0 ? void 0 : pf.value, {}) || {};
+        const rsm = okuJSON(rs === null || rs === void 0 ? void 0 : rs.value, null);
+        setKurulum(kur);
+        if (kur && kur.beklenen) setBeklenenGiris(String(kur.beklenen));
+        const etkin=akt && !tbl.haftalar.some(h=>h.no===akt.hafta) ? akt : null;
+        setAktif(etkin);
+        setTablo(tbl);
+        setPortfoy(pfy);
+        setResmi(rsm);
+        setPortfoyAcik((pa === null || pa === void 0 ? void 0 : pa.value) === "1");
+        const mgv = okuJSON(mg === null || mg === void 0 ? void 0 : mg.value, MAGAZA_BOS) || MAGAZA_BOS;
+        setMagaza({
+            alimlar: Array.isArray(mgv.alimlar) ? mgv.alimlar : [],
+            zekat: Array.isArray(mgv.zekat) ? mgv.zekat : [],
+            erzak: Array.isArray(mgv.erzak) ? mgv.erzak : [],
+            cezalar: Array.isArray(mgv.cezalar) ? mgv.cezalar : [],
+        });
+        setAnket(okuJSON(an === null || an === void 0 ? void 0 : an.value, {}) || {});
+        setTransfer(okuJSON(tr === null || tr === void 0 ? void 0 : tr.value, null));
+        setAyakta(ayaktaNorm(okuJSON(ay === null || ay === void 0 ? void 0 : ay.value, AYAKTA_BOS)));
+        if (etkin) await kuponlariYukle(lg, etkin.hafta, benSlug);
+        else {setKuponlar({});setBenimKupon(null);}
+        return { kur, akt:etkin, tbl, pfy };
+    }
+    async function resmiKaydet() {
+        kurucuKontrol();
+        const temiz = {};
+        Object.entries(resmiTaslak).forEach(([i, v]) => { if (v !== "" && v !== null && !isNaN(+v))
+            temiz[i] = +v; });
+        const kayit = { puanlar: temiz, guncelleyen: ben.isim, zaman: Date.now(), haftaSayisi: tablo.haftalar.length, tabloIzi: KAnaliz.stamp(tablo.haftalar) };
+        await depo.set(`kpn:${lig}:resmi`, JSON.stringify(kayit));
+        setResmi(kayit);
+        setResmiTaslak(null);
+        setBilgi("Resmi puanlar kaydedildi. Portföy puanları artık buradan hesaplanıyor.");
+        await gunlukYaz(audit('Resmî puanlar güncellendi', Object.keys(temiz).length+' takımın puanı kaydedildi.',Object.entries(temiz).map(([i,p])=>T(+i).ad+': '+(resmi && resmi.puanlar && resmi.puanlar[i] != null ? resmi.puanlar[i] : '—')+' → '+p)));
+    }
+    async function resmiSil() {
+        kurucuKontrol();
+        await depo.set(`kpn:${lig}:resmi`, JSON.stringify(null));
+        setResmi(null);
+        setResmiTaslak(null);
+        setBilgi("Resmi puanlar silindi. Portföy yine kupon sonuçlarından hesaplanıyor.");
+        await gunlukYaz(audit('Resmî puanlar kaldırıldı','Portföy hesabı girilmiş maç sonuçlarına döndü.'));
+    }
+    async function kuponlariYukle(lg, hafta, benSlug) {
+        try {
+            const l = await depo.list(`kpn:${lg}:kupon:${hafta}:`);
+            const rows = await depo.getMany((l === null || l === void 0 ? void 0 : l.keys) || []);
+            const out = {};
+            for (const v of rows) {
+                const p = okuJSON(v && v.value, null);
+                if (!p || !p.slug) continue;
+                out[p.slug] = p.slug === benSlug
+                    ? p
+                    : { slug: p.slug, isim: p.isim, yatirildi: true };
+            }
+            setKuponlar(out);
+            if (benSlug && out[benSlug] && out[benSlug].tahminler)
+                setBenimKupon(out[benSlug]);
+            else
+                setBenimKupon(null);
+        }
+        catch (e) { throw e; }
+    }
+    async function misafirAc(lg) {
+        const kod = String(lg || "").toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 20);
+        if (!kod) throw new Error("Grup kodunu gir.");
+        setMesgul(true);
+        try {
+            const { kur } = await veriYukle(kod, "");
+            if (!kur) throw new Error("Bu grup kodu yok veya henüz kurulmamış.");
+            setLig(kod);
+            setBen({ slug: "", isim: "Misafir", misafir: true });
+            setEkran("oyun");
+            setSekme("merkez");
+        } finally { setMesgul(false); }
+    }
+    /* Kimlik denetimi: PIN yoksa kurdurur, varsa cihaz doğrulanmamışsa sorar */
+    async function girisDene(lg, ad, otomatik) {
+        if (!lg.trim() || !ad.trim())
+            return;
+        setMesgul(true);
+        setPinHata("");
+        setPin("");
+        setPin2("");
+        const s = slug(ad);
+        try {
+            const kayit = await depo.get(`kpn:${lg}:kimlik:${s}`);
+            const sunucuKayit = okuJSON(kayit === null || kayit === void 0 ? void 0 : kayit.value, null);
+            const sunucu = sunucuKayit && sunucuKayit.karma ? sunucuKayit.karma : null;
+            const cihaz = localStorage.getItem(`kpn:cihaz:${lg}:${s}`);
+            if (sunucu && cihaz === sunucu) {
+                setMesgul(false);
+                await ligeGir(lg, ad, otomatik);
+                return;
+            }
+            setPinEkrani({ lig: lg, isim: ad.trim(), slug: s, yeni: !sunucu, sunucu });
+            setEkran("pin");
+        }
+        catch (e) {
+            setBilgi("Bağlantı kurulamadı. İnternetini kontrol edip tekrar dene.");
+        }
+        setMesgul(false);
+    }
+    async function pinOnayla() {
+        const { lig: lg, isim, slug: s, yeni, sunucu } = pinEkrani;
+        if (!/^\d{4}$/.test(pin)) {
+            setPinHata("PIN 4 rakam olmalı.");
+            return;
+        }
+        setMesgul(true);
+        setPinHata("");
+        try {
+            const karma = await pinKarma(lg, s, pin);
+            if (yeni) {
+                if (pin !== pin2) {
+                    setPinHata("İki PIN aynı değil.");
+                    setMesgul(false);
+                    return;
+                }
+                await depo.kosulluSet(`kpn:${lg}:kimlik:${s}`, JSON.stringify({ karma, olusturma: Date.now() }), null);
+            }
+            else if (karma !== sunucu) {
+                setPinHata("PIN yanlış.");
+                setPin("");
+                setMesgul(false);
+                return;
+            }
+            localStorage.setItem(`kpn:cihaz:${lg}:${s}`, karma);
+            setMesgul(false);
+            await ligeGir(lg, isim, false);
+            setPinEkrani(null);
+            setPin("");
+            setPin2("");
+            return;
+        }
+        catch (e) {
+            setPinHata("Kaydedilemedi, tekrar dene.");
+        }
+        setMesgul(false);
+    }
+    async function ligeGir(lg, ad, sessiz) {
+        if (!lg.trim() || !ad.trim())
+            return;
+        setMesgul(true);
+        const s = slug(ad);
+        const kimlik = { lig: lg, isim: ad.trim(), slug: s };
+        setBen(kimlik);
+        const { kur } = await veriYukle(lg, s);
+        if (!kur) {
+            setTakimDuzen(VARSAYILAN_TAKIMLAR.map(t => ({ ...t })));
+            setEkran("takimlar");
+        }
+        else {
+            // katılımcı listesine ekle
+            if (!kur.oyuncular.some(o => o.slug === s)) {
+                const y = { ...kur, oyuncular: [...kur.oyuncular, { slug: s, isim: ad.trim() }] };
+                await depo.kosulluSet(`kpn:${lg}:kurulum`, JSON.stringify(y), JSON.stringify(kur));
+                setKurulum(y);
+            }
+            const pf = await depo.get(`kpn:${lg}:portfoy`);
+            const pfy = okuJSON(pf === null || pf === void 0 ? void 0 : pf.value, {}) || {};
+            if (!pfy[s]) {
+                setPortfoySecim([]);
+                setEkran("portfoyKur");
+            }
+            else
+                setEkran("oyun");
+        }
+        await depo.set("kpn:kimlik", JSON.stringify(kimlik), false);
+        setMesgul(false);
+    }
+    async function kurulumBitir() {
+        const n = Math.max(2, Math.min(18, parseInt(beklenenGiris, 10) || TAKMA_ADLAR.length));
+        const kadro = takimDuzen.filter(t => (t.ad || "").trim() && (t.kod || "").trim()).map(t => ({
+            ad: t.ad.trim(), kod: String(t.kod).trim().toUpperCase(),
+            gp: Number.isFinite(+t.gp) ? Math.max(0, Math.min(102, +t.gp)) : 35,
+            yeni: !!t.yeni,
+        }));
+        if (kadro.length < 2) throw new Error("En az iki takım olmalı.");
+        const mevcut = await depo.get(`kpn:${lig}:kurulum`);
+        if (mevcut && mevcut.value) throw new Error("Bu grup kodu zaten alınmış. Başka bir kod dene veya o gruba PIN ile gir.");
+        const kur = { ad: lig, takimlar: kadro, oyuncular: [{ slug: ben.slug, isim: ben.isim }], kuran: ben.slug, beklenen: n };
+        await depo.kosulluSet(`kpn:${lig}:kurulum`, JSON.stringify(kur), null);
+        const tab = { toplam: {}, haftalar: [], ligTablo: {} };
+        const tabKayit = await depo.get(`kpn:${lig}:tablo`);
+        if (!(tabKayit && tabKayit.value))
+            await depo.set(`kpn:${lig}:tablo`, JSON.stringify(tab));
+        setKurulum(kur);
+        setTablo(tab);
+        setPortfoySecim([]);
+        setEkran("portfoyKur");
+    }
+    async function beklenenAyarla(n) {
+        kurucuKontrol();
+        const n2 = Math.max(2, Math.min(18, parseInt(n, 10) || 0));
+        if (n2 < 2) throw new Error("En az 2 kişi olmalı.");
+        const kayit = await depo.get(`kpn:${lig}:kurulum`);
+        const kur = okuJSON(kayit && kayit.value, null);
+        if (!kur) throw new Error("Kurulum bulunamadı. Sayfayı yenile.");
+        const y = { ...kur, beklenen: n2 };
+        await depo.kosulluSet(`kpn:${lig}:kurulum`, JSON.stringify(y), kayit.value);
+        setKurulum(y);
+        setBeklenenGiris(String(n2));
+        setBilgi("Grup " + n2 + " kişi olarak kaydedildi. Portföyler herkes kilitleyince açılır.");
+    }
+    async function portfoyleriAcSimdi() {
+        kurucuKontrol();
+        if (portfoyAcik) { setBilgi("Portföyler zaten açık."); return; }
+        await depo.set(`kpn:${lig}:portfoyAcik`, "1");
+        setPortfoyAcik(true);
+        setBilgi("Portföyler açıldı. Artık herkes birbirinin takımlarını görüyor.");
+        await gunlukYaz(audit("Portföyler açıldı", "Kurucu kör seçimi sonlandırdı."));
+    }
+    async function portfoyKaydet() {
+        const maliyet = portfoySecim.reduce((s, i) => s + fiyat(takimlar[i]), 0);
+        if (portfoySecim.length !== PORTFOY_ADET) {
+            setBilgi(`${PORTFOY_ADET} takım seçmelisin.`);
+            return;
+        }
+        if (maliyet > KREDI) {
+            setBilgi("Kredi yetmiyor.");
+            return;
+        }
+        const kayit = await depo.get(`kpn:${lig}:portfoy`);
+        const guncel = (kayit && kayit.value ? okuJSON(kayit.value, {}) : {}) || {};
+        if (guncel[ben.slug]) throw new Error("Portföyün zaten kilitli. Sayfayı yenile.");
+        const y = { ...guncel, [ben.slug]: { isim: ben.isim, takimlar: portfoySecim, harcanan: maliyet } };
+        await depo.kosulluSet(`kpn:${lig}:portfoy`, JSON.stringify(y), kayit ? kayit.value : null);
+        setPortfoy(y);
+        setEkran("oyun");
+        setSekme("kupon");
+    }
+    /* ---------- hafta aç ---------- */
+    async function haftayiAc() {
+        kurucuKontrol();
+        if (yeniMac.liste.length === 0) {
+            setBilgi("En az bir maç ekle.");
+            return;
+        }
+        const hafta = ((tablo === null || tablo === void 0 ? void 0 : tablo.haftalar.length) || 0) + 1;
+        const zaman = teslimZamani();
+        if (!Number.isFinite(zaman) || zaman <= Date.now()) throw new Error("İlk maç için gelecekte bir tarih ve saat gir.");
+        const mevcut = await depo.get(`kpn:${lig}:aktif`);
+        const mevcutAktif = mevcut && okuJSON(mevcut.value, null);
+        if (mevcutAktif && !tablo.haftalar.some(h=>h.no===mevcutAktif.hafta)) throw new Error("Açık bir hafta zaten var. Sayfayı yenile.");
+        if(yeniMac.liste.some(m=>Number.isFinite(m.baslangic)&&zaman>m.baslangic))throw new Error('Teslim saati ilk maç başlangıcından sonra olamaz.');
+        const a = { hafta, maclar: yeniMac.liste, kuran: ben.isim, acilis: Date.now(), sonTeslim: zaman, oranlar: macOranlari(yeniMac.liste, takimlar, (tablo && tablo.haftalar) || []) };
+        await depo.kosulluSet(`kpn:${lig}:aktif`, JSON.stringify(a), mevcut ? mevcut.value : null);
+        setAktif(a);
+        setKuponlar({});
+        setBenimKupon(null);
+        setYeniMac({ liste: [], bekleyen: null });
+        await gunlukYaz(audit('Hafta açıldı',hafta+'. hafta · son teslim '+new Date(zaman).toLocaleString('tr-TR',{timeZone:'Europe/Istanbul'})));
+    }
+    function takimTikla(i) {
+        if (yeniMac.liste.length >= 12)
+            return;
+        if (yeniMac.bekleyen === null)
+            setYeniMac({ ...yeniMac, bekleyen: i });
+        else if (yeniMac.bekleyen === i)
+            setYeniMac({ ...yeniMac, bekleyen: null });
+        else
+            setYeniMac({ liste: [...yeniMac.liste, { e: yeniMac.bekleyen, d: i }], bekleyen: null });
+    }
+    const kullanilan = new Set(yeniMac.liste.reduce((a, m) => a.concat([m.e, m.d]), []).concat(yeniMac.bekleyen !== null ? [yeniMac.bekleyen] : []));
+    const gelecekHafta = ((tablo === null || tablo === void 0 ? void 0 : tablo.haftalar.length) || 0) + 1;
+    const hazir = HAZIR_FIKSTUR[gelecekHafta];
+    const hazirCozum = useMemo(() => {
+        if (!hazir)
+            return null;
+        const bul = (kod) => takimlar.findIndex(t => t.kod === kod);
+        const liste = [];
+        for (const [e, d] of hazir.maclar) {
+            const ei = bul(e), di = bul(d);
+            if (ei < 0 || di < 0)
+                return null;
+            liste.push({ e: ei, d: di });
+        }
+        return liste;
+    }, [hazir, takimlar]);
+    /* ---------- kupon doldur ---------- */
+    const [taslak, setTaslak] = useState(null);
+    useEffect(() => {
+        if (aktif && !benimKupon)
+            setTaslak({ tahminler: aktif.maclar.map(() => [1, 1]), joker: 0, kart: { tur: null, mac: null } });
+        else if (benimKupon)
+            setTaslak(null);
+        setKuponOnay(false);
+    }, [aktif === null || aktif === void 0 ? void 0 : aktif.hafta, benimKupon]);
+    async function kuponVer() {
+        const kayit = await depo.get(`kpn:${lig}:aktif`);
+        const a = kayit && okuJSON(kayit.value, null);
+        if (!a || a.hafta !== aktif.hafta || !Number.isFinite(a.sonTeslim) || Date.now() >= a.sonTeslim)
+            throw new Error("Kupon teslim süresi kapalı. Sayfayı yenile.");
+        if(JSON.stringify(a.maclar.map(m=>[m.e,m.d]))!==JSON.stringify(aktif.maclar.map(m=>[m.e,m.d])))throw new Error('Maç listesi değişti. Sayfayı yenile.');
+        const onceki = await depo.get(`kpn:${lig}:kupon:${aktif.hafta}:${ben.slug}`);
+        if (onceki && onceki.value) throw new Error("Kuponun zaten kayıtlı. Değiştirilemez; sayfayı yenile.");
+        if (!taslak || taslak.tahminler.length !== a.maclar.length || !taslak.tahminler.every(x => x.length === 2 && x.every(n => Number.isInteger(n) && n >= 0 && n <= 9)))
+            throw new Error("Tahminleri kontrol et.");
+        if (!taslak.kart || !taslak.kart.tur || taslak.kart.mac == null)
+            throw new Error("Olay kartı seç: tür ve maç.");
+        if (!KARTLAR.some(x => x.id === taslak.kart.tur) || +taslak.kart.mac < 0 || +taslak.kart.mac >= a.maclar.length)
+            throw new Error("Olay kartı geçersiz.");
+        const k = { slug: ben.slug, isim: ben.isim, hafta: aktif.hafta, tahminler: taslak.tahminler, joker: taslak.joker, kart: { tur: taslak.kart.tur, mac: +taslak.kart.mac }, zaman: Date.now() };
+        await depo.kosulluSet(`kpn:${lig}:kupon:${aktif.hafta}:${ben.slug}`, JSON.stringify(k), null);
+        setBenimKupon(k);
+        setKuponlar({ ...kuponlar, [ben.slug]: k });
+        setBilgi("Kuponun yatırıldı ve kilitlendi. Bol şans.");
+        setKuponOnay(false);
+    }
+    /* ---------- haftayı kapat ---------- */
+    /* Kendi takım kodumuzu sözlükteki anahtara çevirir (GÖZ -> GOZ gibi) */
+    const kodEslesmesi = (kod) => {
+        const sade = (kod || "").replace(/Ö/g, "O").replace(/Ç/g, "C").replace(/İ/g, "I").replace(/Ğ/g, "G").replace(/Ü/g, "U").replace(/Ş/g, "S");
+        return sade;
+    };
+    const ayaktaMacRef = useRef(false);
+    useEffect(() => {
+        if (MISAFIR) return;
+        if (ekran !== "oyun" || !aktif || !(ayakta.canli || []).length) return;
+        if (sporDurum.hafta !== aktif.hafta) return;
+        const map = sporDurum.sonuclar || {};
+        const sonuclar = (aktif.maclar || []).map(function (m) {
+            const key = kodEslesmesi(T(m.e).kod) + ">" + kodEslesmesi(T(m.d).kod);
+            const s = map[key];
+            return s && s[0] != null && s[1] != null ? s : [null, null];
+        });
+        if (!sonuclar.some(function (s) { return s && s[0] != null; })) return;
+        if (ayaktaMacRef.current) return;
+        ayaktaMacRef.current = true;
+        ayaktaSonucIsle({ no: aktif.hafta, maclar: aktif.maclar, sonuclar: sonuclar }, { teslimKapali: ruletKapali, zorla: false })
+            .catch(function () {})
+            .finally(function () { ayaktaMacRef.current = false; });
+    }, [sporDurum.zaman, aktif && aktif.hafta, ekran, teslimKapali, ruletKapali]);
+    async function sonucCek() {
+        setCekiyor(true);setBilgi('');
+        try {
+            const events=await sporVerisi(aktif.hafta),harita=sonucHaritasi(events);
+            const y=(sonucGiris||aktif.maclar.map(()=>[null,null])).map(x=>[...x]);let bulunan=0;
+            aktif.maclar.forEach((m,i)=>{const key=kodEslesmesi(T(m.e).kod)+'>'+kodEslesmesi(T(m.d).kod);if(harita[key]){y[i]=harita[key];bulunan++;}});
+            setSonucGiris(y);setSporDurum({hafta:aktif.hafta,sonuclar:harita,zaman:Date.now(),hata:'',mesgul:false});
+            setBilgi(bulunan+' / '+aktif.maclar.length+' maç için kesinleşmiş sonuç alındı. Eksikleri kontrol edip elle tamamla.');
+        } catch(e){setBilgi(e.message+' Skorları elle girebilirsin.');}
+        finally{setCekiyor(false);}
+    }
+        /* Bir haftanın puanlarını saklı tahminlerden yeniden hesaplar */
+    function haftaPuanla(maclar, sonuclar, tahminler, jokerler) {
+        const puanlar = {}, detay = {};
+        Object.keys(tahminler || {}).forEach(slug => {
+            const th = tahminler[slug] || [];
+            const jk = (jokerler || {})[slug];
+            let toplam = 0, dogruSonuc = 0;
+            const dt = maclar.map((_, i) => {
+                let p = macPuani(th[i], sonuclar[i]);
+                if (p >= 2) dogruSonuc++;
+                if (jk === i) p *= 2;
+                toplam += p;
+                return p;
+            });
+            if (dogruSonuc === maclar.length && maclar.length >= 5) toplam += 5;
+            puanlar[slug] = toplam; detay[slug] = dt;
+        });
+        return { puanlar, detay };
+    }
+
+    /* Tüm tabloyu haftalardan sıfırdan kurar: toplam puanlar + lig tablosu */
+    function tabloyuKur(haftalar) {
+        const toplam = {}, ligTablo = {};
+        const islenmis = [];
+        haftalar.forEach(h => {
+            const oranlar = (h.oranlar && h.oranlar.length === (h.maclar || []).length)
+                ? h.oranlar
+                : macOranlari(h.maclar, takimlar, islenmis);
+            h.oranlar = oranlar;
+            const { puanlar, detay } = haftaPuanla(h.maclar, h.sonuclar, h.tahminler, h.jokerler);
+            h.kartPuan = {};
+            Object.keys(puanlar).forEach(sl => {
+                const kp = kartPuan((h.kartlar || {})[sl], h.sonuclar, oranlar);
+                h.kartPuan[sl] = kp;
+                puanlar[sl] += kp;
+            });
+            h.puanlar = puanlar; h.detay = detay;
+            Object.entries(puanlar).forEach(([sl, p]) => { toplam[sl] = (toplam[sl] || 0) + p; });
+            h.maclar.forEach((m, i) => {
+                const eg = h.sonuclar[i][0], dg = h.sonuclar[i][1];
+                if (eg === null || dg === null) return;
+                [m.e, m.d].forEach(t => { if (!ligTablo[t]) ligTablo[t] = bosSatir(); });
+                const E = ligTablo[m.e], D = ligTablo[m.d];
+                E.o++; D.o++; E.ag += eg; E.yg += dg; D.ag += dg; D.yg += eg;
+                if (eg > dg) { E.g++; E.p += 3; D.m++; }
+                else if (eg === dg) { E.b++; D.b++; E.p++; D.p++; }
+                else { D.g++; D.p += 3; E.m++; }
+            });
+            islenmis.push(h);
+        });
+        return { toplam, haftalar, ligTablo };
+    }
+
+    /* Kapanmış bir haftanın skorunu düzelt */
+    async function haftaSkorDuzelt(idx,yeniSonuclar) {
+        kurucuKontrol();
+        if(!duzeltNeden.trim())throw new Error('Skor düzeltme nedenini yaz.');
+        if(!(tablo && tablo.haftalar[idx])||!yeniSonuclar.every(KAnaliz.valid))throw new Error('Tüm sonuçları geçerli sayılarla gir.');
+        const record=await depo.get(`kpn:${lig}:tablo`),current=record&&okuJSON(record.value, null);
+        if(!current||JSON.stringify(current)!==JSON.stringify(tablo))throw new Error('Tablo başka bir cihazda değişti. Yenileyip tekrar dene.');
+        const old=current.haftalar[idx],changes=old.maclar.map((m,i)=>({m,i})).filter(({i})=>JSON.stringify(old.sonuclar[i])!==JSON.stringify(yeniSonuclar[i])).map(({m,i})=>T(m.e).kod+' – '+T(m.d).kod+': '+old.sonuclar[i].join('–')+' → '+yeniSonuclar[i].join('–'));
+        if(!changes.length){setDuzeltHafta(null);return;}
+        const copy=JSON.parse(JSON.stringify(current.haftalar));copy[idx].sonuclar=yeniSonuclar;
+        const yeni=tabloyuKur(copy);
+        const ranks=Object.fromEntries(KAnaliz.rank(current.toplam).map(x=>[x.slug,x.sira]));
+        KAnaliz.rank(yeni.toplam).forEach(x=>{const oy=kurulum.oyuncular.find(o=>o.slug===x.slug);if(ranks[x.slug]!==x.sira)changes.push(((oy && oy.isim)||x.slug)+': kupon klasmanı '+ranks[x.slug]+'. → '+x.sira+'.');});
+        yeni.gecmis=[...(current.gecmis||[]),audit('Skor düzeltildi',old.no+'. hafta · '+duzeltNeden.trim(),changes)];
+        await depo.kosulluSet(`kpn:${lig}:tablo`,JSON.stringify(yeni),record.value);
+        setTablo(yeni);setDuzeltHafta(null);setDuzeltNeden('');setBilgi(old.no+'. hafta yeniden hesaplandı.');
+    }
+    async function haftayiKapat() {
+        kurucuKontrol();
+        if(!sonucGiris||!sonucGiris.every(KAnaliz.valid))throw new Error('Tüm maçların kesin sonuçlarını gir.');
+        const [activeRecord,tableRecord]=await Promise.all([depo.get(`kpn:${lig}:aktif`),depo.get(`kpn:${lig}:tablo`)]);
+        const a=activeRecord&&okuJSON(activeRecord.value, null),current=tableRecord&&okuJSON(tableRecord.value, null);
+        if(!a||a.hafta!==aktif.hafta||!current)throw new Error('Hafta değişti. Sayfayı yenile.');
+        if(!Number.isFinite(a.sonTeslim)||Date.now()<a.sonTeslim)throw new Error('Önce kupon teslim süresi dolmalı.');
+        if(current.haftalar.some(h=>h.no===a.hafta))throw new Error('Bu hafta zaten puanlanmış. Sayfayı yenile.');
+        if(a.maclar.length!==sonucGiris.length)throw new Error('Maç listesi değişti. Sayfayı yenile.');
+        const l=await depo.list(`kpn:${lig}:kupon:${a.hafta}:`);
+        const rows=await depo.getMany(((l && l.keys)||[])),hepsi={};
+        rows.forEach(v=>{const kp=okuJSON(v&&v.value, null);if(kp&&kp.slug)hepsi[kp.slug]=kp;});
+        const h={no:a.hafta,maclar:a.maclar,sonuclar:sonucGiris,jokerler:Object.fromEntries(Object.values(hepsi).map(k=>[k.slug,k.joker])),tahminler:Object.fromEntries(Object.values(hepsi).map(k=>[k.slug,k.tahminler])),kartlar:Object.fromEntries(Object.values(hepsi).filter(k=>k.kart).map(k=>[k.slug,k.kart])),oranlar:a.oranlar||macOranlari(a.maclar,takimlar,(current.haftalar)||[]),isimler:Object.fromEntries(Object.values(hepsi).map(k=>[k.slug,k.isim])),kapanis:Date.now()};
+        const yeni=tabloyuKur([...current.haftalar,h]);yeni.gecmis=[...(current.gecmis||[]),audit('Hafta kapatıldı',a.hafta+'. hafta · '+Object.keys(hepsi).length+' kupon puanlandı.')];
+        await depo.kosulluSet(`kpn:${lig}:tablo`,JSON.stringify(yeni),tableRecord.value);
+        // Archive is authoritative. A failed cleanup cannot score the same week twice.
+        try{await depo.kosulluSet(`kpn:${lig}:aktif`,JSON.stringify(null),activeRecord.value);}catch{}
+        setTablo(yeni);setAktif(null);setSonucGiris(null);setBenimKupon(null);setKuponlar({});setAcikHafta(yeni.haftalar.length-1);setSekme('merkez');setMerkezSekme('ozet');setOzetHafta(String(a.hafta));
+        try {
+            const ayMes = await ayaktaHaftaBitir(h);
+            setBilgi(a.hafta + '. hafta kapandı.' + (ayMes ? ' ' + ayMes : ''));
+        } catch (e) {
+            setBilgi(a.hafta + '. hafta kapandı. Rulet güncellenemedi: ' + (e && e.message ? e.message : 'hata'));
+        }
+    }
+    /* ---------- hesaplamalar ---------- */
+    const ligSirali = useMemo(() => {
+        if (!tablo)
+            return [];
+        return Object.entries(tablo.ligTablo).map(([i, s]) => ({ i: +i, ...s, av: s.ag - s.yg }))
+            .sort((a, b) => b.p - a.p || b.av - a.av || b.ag - a.ag);
+    }, [tablo]);
+    const takimPuan = (i) => {
+        var _a, _b;
+        const r = (_a = resmi && resmi.tabloIzi === KAnaliz.stamp(tablo.haftalar) ? resmi.puanlar : null) === null || _a === void 0 ? void 0 : _a[i];
+        return (r !== undefined && r !== null) ? r : (((_b = tablo === null || tablo === void 0 ? void 0 : tablo.ligTablo[i]) === null || _b === void 0 ? void 0 : _b.p) || 0);
+    };
+    // Kör seçim: portföyler ancak kayıtlı herkes kilitleyince açılır, sonra açık kalır
+    const kilitleyen = ((kurulum === null || kurulum === void 0 ? void 0 : kurulum.oyuncular) || []).filter(o => portfoy[o.slug]).length;
+    const toplamOyuncu = ((kurulum === null || kurulum === void 0 ? void 0 : kurulum.oyuncular) || []).length;
+    const beklenenOyuncu = ((kurulum === null || kurulum === void 0 ? void 0 : kurulum.beklenen) || TAKMA_ADLAR.length);
+    const hepsiKilitli = toplamOyuncu >= beklenenOyuncu && kilitleyen >= beklenenOyuncu;
+    useEffect(() => {
+        if (hepsiKilitli && !portfoyAcik && lig) {
+            setPortfoyAcik(true);
+            depo.set(`kpn:${lig}:portfoyAcik`, "1").catch(() => { });
+        }
+    }, [hepsiKilitli, portfoyAcik, lig]);
+    const sahipSayisi = (i) => portfoyAcik ? Object.values(portfoy).filter(p => p.takimlar.includes(+i)).length : 0;
+    const takimKatki = (i) => {
+        const b = takimPuan(i);
+        return sahipSayisi(i) === 1 ? Math.round(b * TEK_SAHIP_CARPAN) : b;
+    };
+    const portfoyPuan = (s) => { var _a; return (((_a = portfoy[s]) === null || _a === void 0 ? void 0 : _a.takimlar) || []).reduce((t, i) => t + takimKatki(i), 0); };
+    const klasman = useMemo(() => {
+        if (!kurulum || !tablo)
+            return [];
+        return kurulum.oyuncular.map(o => {
+            const kupon = tablo.toplam[o.slug] || 0;
+            const pf = portfoyPuan(o.slug);
+            return { ...o, kupon, portfoy: pf, genel: kupon + pf };
+        }).sort((a, b) => b.genel - a.genel);
+    }, [kurulum, tablo, portfoy, resmi]);
+    /* ================= EK GÖRÜNÜMLER =================
+       Hepsi mevcut veriden türetilir; puanlama ve kayıt mantığına dokunmaz. */
+
+    const CIZGI_RENK = ["#E8E2D4", "#7D9B6A", "#C4B07A", "#C45C4A", "#9C9488"];
+
+    /* Hafta hafta biriken kupon puanı — sezon grafiği için */
+    const sezonSerisi = useMemo(() => {
+        const h = (tablo && tablo.haftalar) || [];
+        if (h.length < 2) return null;
+        const oyuncular = ((kurulum && kurulum.oyuncular) || []);
+        const seriler = oyuncular.map((o, k) => {
+            let birikim = 0;
+            const nokta = h.map(x => { birikim += (x.puanlar && x.puanlar[o.slug]) || 0; return birikim; });
+            return { slug: o.slug, isim: o.isim, renk: CIZGI_RENK[k % CIZGI_RENK.length], nokta, son: birikim };
+        });
+        const enYuksek = Math.max(1, ...seriler.map(s => s.son));
+        return { seriler, haftalar: h.map(x => x.no), enYuksek };
+    }, [tablo, kurulum]);
+
+    /* Portföydeki her takımın fiyatına göre performansı.
+       fiyat = beklenenPuan - FIYAT_TABAN olduğu için beklenti geri türetilebilir. */
+    function portfoyKarne(slug) {
+        const pf = portfoy[slug];
+        if (!pf || !pf.takimlar) return null;
+        const gecen = ((tablo && tablo.haftalar) || []).length;
+        return pf.takimlar.map(i => {
+            const t = T(i);
+            const f = fiyat(t);
+            const sezonBeklenti = f + FIYAT_TABAN;
+            const lt = (tablo && tablo.ligTablo && tablo.ligTablo[i]) || null;
+            const oynanan = (lt && lt.o) || gecen;
+            const oran = Math.min(1, oynanan / 34);
+            const simdiBeklenen = sezonBeklenti * oran;
+            const gercek = takimPuan(i);
+            const tekSahip = sahipSayisi(i) === 1;
+            return {
+                idx: i, ad: t.ad, kod: t.kod, fiyat: f,
+                sezonBeklenti, simdiBeklenen, gercek, oynanan,
+                fark: gercek - simdiBeklenen,
+                katki: takimKatki(i), tekSahip,
+            };
+        }).sort((a, b) => b.fark - a.fark);
+    }
+
+    /* Bir haftada bir maçın tam skorunu yalnız bir kişi bildiyse onu döndürür */
+    function tekBilen(h, i) {
+        const dogru = [];
+        Object.entries(h.tahminler || {}).forEach(([sl, th]) => {
+            const t = th && th[i], sn = h.sonuclar[i];
+            if (t && sn && t[0] === sn[0] && t[1] === sn[1]) dogru.push(sl);
+        });
+        if (dogru.length !== 1) return null;
+        const say = Object.keys(h.tahminler || {}).length;
+        if (say < 2) return null;
+        return (h.isimler && h.isimler[dogru[0]]) || dogru[0];
+    }
+
+    /* ---------- haftalık ödül ----------
+       Yalnızca kupon puanına göre; portföy hesaba katılmaz.
+       Beraberlikte eşit olanların kapladığı sıraların ödülleri toplanıp
+       aralarında eşit bölüşülür; haftalık dağıtılan toplam sabit kalır. */
+    const ODULLER = [500, 250, 150, 75, 1];
+    const haftaOdul = (h) => {
+        const e = Object.entries((h && h.puanlar) || {});
+        if (!e.length) return [];
+        const ad = (sl) => (h.isimler && h.isimler[sl]) || sl;
+        const sirali = e.slice().sort((a, b) => b[1] - a[1]);
+        const cikti = [];
+        let i = 0;
+        while (i < sirali.length) {
+            let k = i;
+            while (k + 1 < sirali.length && sirali[k + 1][1] === sirali[i][1]) k++;
+            let havuz = 0;
+            for (let d = i; d <= k; d++) havuz += (ODULLER[d] || 0);
+            const pay = havuz / (k - i + 1);
+            for (let d = i; d <= k; d++) {
+                cikti.push({
+                    slug: sirali[d][0], isim: ad(sirali[d][0]), puan: sirali[d][1],
+                    sira: i + 1, odul: pay, esit: k > i,
+                });
+            }
+            i = k + 1;
+        }
+        const puanlar = cikti.map(x => x.puan);
+        const enAz = Math.min(...puanlar), enCok = Math.max(...puanlar);
+        cikti.forEach(x => {
+            x.unvan = (x.puan === enCok) ? "alim"
+                : (cikti.length >= 2 && enCok !== enAz && x.puan === enAz) ? "dallama" : "";
+        });
+        /* Banko bonusu: haftanın 1.si olup bankosunun tam skorunu da tutturana ödül ikiye katlanır.
+           detay dizisi banko çarpanını zaten içerir (tam skor 5 × banko 2 = 10). */
+        cikti.forEach(x => {
+            if (x.sira !== 1) return;
+            const jk = h.jokerler && h.jokerler[x.slug];
+            const dt = h.detay && h.detay[x.slug];
+            if (jk !== undefined && jk !== null && dt && dt[jk] === 10) {
+                x.odul *= 2;
+                x.bankoBonus = true;
+            }
+        });
+        /* Bidon d'Or'a ek onur: o hafta tek puan bile alamayan sonuncuya büyük boy patlıcan. */
+        cikti.forEach(x => {
+            if (x.unvan === "dallama" && x.puan === 0) x.patlican = true;
+        });
+        return cikti;
+    };
+    function rezaletListesi(h) {
+        const out = [];
+        ((h && h.maclar) || []).forEach((m, i) => {
+            const sn = h.sonuclar && h.sonuclar[i];
+            if (!sn || sn[0] == null || sn[1] == null) return;
+            Object.entries(h.tahminler || {}).forEach(([sl, th]) => {
+                const t = th && th[i];
+                if (!t || t[0] == null || t[1] == null) return;
+                const uzak = Math.abs(+t[0] - +sn[0]) + Math.abs(+t[1] - +sn[1]);
+                const p = (h.detay && h.detay[sl] && h.detay[sl][i]) || 0;
+                const banko = (h.jokerler && h.jokerler[sl]) === i;
+                if (p === 0 && (uzak >= 5 || (banko && uzak >= 4))) {
+                    out.push({
+                        slug: sl, isim: (h.isimler && h.isimler[sl]) || sl,
+                        i, t, sn, uzak, banko,
+                        ev: T(m.e).kod, dep: T(m.d).kod,
+                    });
+                }
+            });
+        });
+        return out.sort((a, b) => b.uzak - a.uzak || b.banko - a.banko);
+    }
+    function mansetUret(h) {
+        if (!h) return null;
+        const od = haftaOdul(h);
+        const alim = od.filter(x => x.unvan === "alim");
+        const bidon = od.filter(x => x.unvan === "dallama");
+        const rez = rezaletListesi(h);
+        const A = alim[0] ? alim[0].isim : "";
+        const B = bidon[0] ? bidon[0].isim : "";
+        const R = rez[0] ? rez[0].isim : "";
+        const liste = [];
+        if (A) {
+            liste.push(A + " Show");
+            liste.push("Patron " + A);
+            if (alim[0].bankoBonus) liste.push("Baba Vanga " + A);
+            liste.push(A + " kasayı süpürdü");
+            liste.push(A + " bu hafta konuşuyor");
+        }
+        if (B) {
+            liste.push(B + " Sıçtı");
+            liste.push("Gariban " + B);
+            liste.push("Bidon " + B);
+            liste.push(B + " yine sonuncu");
+            if (bidon[0].patlican) liste.push("Sıfır puan: " + B);
+        }
+        if (A && B) liste.push(A + " Show, " + B + " Sıçtı");
+        if (R) {
+            liste.push(R + " ne yazdı öyle");
+            liste.push("Kâhin değil: " + R);
+            if (rez[0].banko) liste.push(R + " bankoyu gömdü");
+        }
+        if (!liste.length) liste.push(h.no + ". hafta bitti. Kimse yere serilmedi.");
+        const dipler = [];
+        if (alim.length) dipler.push("Alîm ulema: " + alim.map(x => x.isim).join(", ") + ".");
+        if (bidon.length) dipler.push("Bidon d'Or: " + bidon.map(x => x.isim).join(", ") + ".");
+        if (rez[0]) dipler.push(rez[0].isim + " " + rez[0].ev + "–" + rez[0].dep + " için " + rez[0].t[0] + "–" + rez[0].t[1] + " yazdı, " + rez[0].sn[0] + "–" + rez[0].sn[1] + " geldi.");
+        if (!dipler.length) dipler.push("Sayfa mürekkep kokuyor, skandal yok.");
+        let tohum = 0;
+        const anahtar = [h.no, A, B, R, rez[0] ? rez[0].uzak : 0].join("|");
+        for (let i = 0; i < anahtar.length; i++) tohum = (tohum * 31 + anahtar.charCodeAt(i)) >>> 0;
+        return {
+            no: h.no,
+            baslik: liste[tohum % liste.length],
+            dip: dipler.join(" "),
+            alim: alim.map(x => x.isim),
+            bidon: bidon.map(x => x.isim),
+            rez,
+        };
+    }
+    async function anketOyVer(hedef) {
+        if (!ben) throw new Error("Giriş yok.");
+        if (!aktif) throw new Error("Açık hafta yok.");
+        if (!hedef) throw new Error("Bir isim seç.");
+        const hf = String(aktif.hafta);
+        let sonHata = null;
+        for (let deneme = 0; deneme < 3; deneme++) {
+            const kayit = await depo.get(`kpn:${lig}:anket`);
+            const onceki = (kayit && okuJSON(kayit.value, {})) || {};
+            const haftaOylari = Object.assign({}, onceki[hf] || {});
+            if (haftaOylari[ben.slug]) throw new Error("Bu hafta oyunu verdin.");
+            haftaOylari[ben.slug] = hedef;
+            const yeni = Object.assign({}, onceki, { [hf]: haftaOylari });
+            try {
+                await depo.kosulluSet(`kpn:${lig}:anket`, JSON.stringify(yeni), kayit ? kayit.value : null);
+                setAnket(yeni);
+                setBilgi("Oyun kaydoldu. Kim kime basmış, aşağıda.");
+                return;
+            } catch (e) {
+                sonHata = e;
+                if (deneme === 2 || !String(e && e.message).includes("başka bir cihaz")) throw e;
+            }
+        }
+        throw sonHata;
+    }
+    const paraYaz = (n) => (Math.round(n * 100) / 100).toString().replace(".", ",") + " \u20AC";
+    /* Sezonun para ekonomisi: haftalık toplam ve şu ana kadar dağıtılan */
+    const HAFTALIK_KASA = ODULLER.reduce((a, b) => a + b, 0);
+    const SEZON_KASA = HAFTALIK_KASA * 34;
+    const dagitilan = useMemo(() => {
+        return ((tablo && tablo.haftalar) || []).reduce((t, h) =>
+            t + haftaOdul(h).reduce((s, x) => s + x.odul, 0), 0);
+    }, [tablo]);
+
+    const kasa = useMemo(() => {
+        const k = {};
+        ((tablo && tablo.haftalar) || []).forEach(h => {
+            haftaOdul(h).forEach(x => { k[x.slug] = (k[x.slug] || 0) + x.odul; });
+        });
+        return k;
+    }, [tablo]);
+    const magazaUrun = (id) => MAGAZA_URUNLER.find(u => u.id === id);
+    const kalanStok = (id, mag = magaza) => {
+        const u = magazaUrun(id);
+        if (!u) return 0;
+        return Math.max(0, u.stok - (mag.alimlar || []).filter(a => a.urun === id).length);
+    };
+    const nakitHesap = (slug, mag = magaza, ay = ayakta) => {
+        const gelir = kasa[slug] || 0;
+        const harcama = (mag.alimlar || []).filter(a => a.slug === slug).reduce((s, a) => s + (+a.fiyat || 0), 0);
+        const verilen = (mag.zekat || []).filter(z => z.veren === slug).reduce((s, z) => s + (+z.miktar || 0), 0);
+        const alinan = (mag.zekat || []).filter(z => z.alan === slug).reduce((s, z) => s + (+z.miktar || 0), 0);
+        const torba = (mag.erzak || []).filter(z => z.veren === slug).reduce((s, z) => s + (+z.miktar || 0), 0);
+        const ayGiris = ((ay && ay.girisler) || []).filter(g => g.slug === slug).reduce((s, g) => s + (+g.miktar || 0), 0);
+        const ayOdul = ((ay && ay.gecmis) || []).filter(g => g.kazanan === slug).reduce((s, g) => s + (+g.kasa || 0), 0);
+        const ceza = (mag.cezalar || []).filter(c => c.slug === slug).reduce((s, c) => s + (+c.miktar || 0), 0);
+        return Math.round((gelir - harcama - verilen - torba + alinan - ayGiris + ayOdul - ceza) * 100) / 100;
+    };
+    const servetHesap = (slug, mag = magaza) => {
+        const mal = (mag.alimlar || []).filter(a => a.slug === slug).reduce((s, a) => s + (+a.fiyat || 0), 0);
+        return Math.round((nakitHesap(slug, mag) + mal) * 100) / 100;
+    };
+    const sahipMallar = (slug, mag = magaza) =>
+        (mag.alimlar || []).filter(a => a.slug === slug).map(a => magazaUrun(a.urun)).filter(Boolean);
+    async function magazaKaydet(mutator, mesaj) {
+        let sonHata = null;
+        for (let deneme = 0; deneme < 3; deneme++) {
+            const kayit = await depo.get(`kpn:${lig}:magaza`);
+            const onceki = (kayit && okuJSON(kayit.value, MAGAZA_BOS)) || MAGAZA_BOS;
+            const taslak = {
+                alimlar: [...(onceki.alimlar || [])],
+                zekat: [...(onceki.zekat || [])],
+                erzak: [...(onceki.erzak || [])],
+                cezalar: (onceki.cezalar || []).map(function (c) { return Object.assign({}, c); }),
+            };
+            const yeni = mutator(taslak);
+            if (JSON.stringify(yeni) === JSON.stringify({
+                alimlar: onceki.alimlar || [],
+                zekat: onceki.zekat || [],
+                erzak: onceki.erzak || [],
+                cezalar: onceki.cezalar || [],
+            })) {
+                setMagaza({
+                    alimlar: onceki.alimlar || [],
+                    zekat: onceki.zekat || [],
+                    erzak: onceki.erzak || [],
+                    cezalar: onceki.cezalar || [],
+                });
+                return onceki;
+            }
+            try {
+                await depo.kosulluSet(`kpn:${lig}:magaza`, JSON.stringify(yeni), kayit ? kayit.value : null);
+                setMagaza(yeni);
+                if (mesaj) setBilgi(mesaj);
+                return yeni;
+            } catch (e) {
+                sonHata = e;
+                if (deneme === 2 || !String(e && e.message).includes("başka bir cihaz")) throw e;
+            }
+        }
+        throw sonHata;
+    }
+    function kerizOdenenIdler(ay) {
+        const s = {};
+        ((ay || ayakta).gecmis || []).forEach(function (g) {
+            (g.kerizIds || []).forEach(function (id) { s[id] = true; });
+        });
+        return s;
+    }
+    function kerizBekleyenListe(mag, ay) {
+        const odendi = kerizOdenenIdler(ay);
+        return ((mag || magaza).cezalar || []).filter(function (c) {
+            return c && c.id && !c.odendi && !odendi[c.id];
+        });
+    }
+    function kerizBekleyen(mag, ay) {
+        return kerizBekleyenListe(mag, ay).reduce(function (s, c) { return s + (+c.miktar || 0); }, 0);
+    }
+    function kerizToplam(mag, ay) {
+        const a = ay || ayakta;
+        return Math.round((kerizBekleyen(mag, a) + (+(a && a.kasa) || 0)) * 100) / 100;
+    }
+    async function kerizKes() {
+        if (MISAFIR) return "";
+        if (!aktif || !lig || !kurulum) return "";
+        if (!ilkMacBasladi) return "";
+        const oy = (kurulum.oyuncular || []);
+        if (!oy.length) return "";
+        const [kuponList, ayKayit] = await Promise.all([
+            depo.list("kpn:" + lig + ":kupon:" + aktif.hafta + ":"),
+            depo.get("kpn:" + lig + ":ayakta"),
+        ]);
+        const keys = (kuponList && kuponList.keys) || [];
+        const rows = keys.length ? await depo.getMany(keys) : [];
+        const veren = {};
+        rows.forEach(function (v) {
+            const p = okuJSON(v && v.value, null);
+            if (p && p.slug) veren[p.slug] = true;
+        });
+        const ay = ayaktaNorm(ayKayit && okuJSON(ayKayit.value, AYAKTA_BOS));
+        const hf = String(aktif.hafta);
+        const picks = (ay.secimler && ay.secimler[hf]) || {};
+        const eklenen = [];
+        await magazaKaydet(function (m) {
+            if (!Array.isArray(m.cezalar)) m.cezalar = [];
+            function varMi(slug, tur) {
+                return m.cezalar.some(function (c) { return c.slug === slug && +c.hafta === +aktif.hafta && c.tur === tur; });
+            }
+            oy.forEach(function (o) {
+                if (!veren[o.slug] && !varMi(o.slug, "kupon")) {
+                    m.cezalar.push({ id: "kz-kupon-" + aktif.hafta + "-" + o.slug, slug: o.slug, hafta: aktif.hafta, tur: "kupon", miktar: CEZA_KUPON, zaman: Date.now() });
+                    eklenen.push({ isim: o.isim, tur: "kupon", miktar: CEZA_KUPON });
+                }
+                if (picks[o.slug] == null && !varMi(o.slug, "rulet")) {
+                    m.cezalar.push({ id: "kz-rulet-" + aktif.hafta + "-" + o.slug, slug: o.slug, hafta: aktif.hafta, tur: "rulet", miktar: CEZA_RULET, zaman: Date.now() });
+                    eklenen.push({ isim: o.isim, tur: "rulet", miktar: CEZA_RULET });
+                }
+            });
+            return m;
+        });
+        if (eklenen.length) {
+            const txt = eklenen.map(function (x) { return x.isim + " · " + (x.tur === "kupon" ? "kupon yok" : "rulet yok") + " · " + paraYaz(x.miktar); }).join(" · ");
+            await gunlukYaz(audit("Keriz Parası", aktif.hafta + ". hf · ilk maç · " + txt));
+            setBilgi("Keriz Parası · " + txt);
+            return txt;
+        }
+        return "";
+    }
+    const kerizRef = useRef(0);
+    useEffect(function () {
+        if (MISAFIR) return;
+        if (ekran !== "oyun" || !aktif || !ilkMacBasladi) return;
+        if (Date.now() - kerizRef.current < 15000) return;
+        kerizRef.current = Date.now();
+        kerizKes().catch(function () {});
+    }, [aktif && aktif.hafta, ilkMacBasladi, ekran]);
+    function kerizKutusu() {
+        const bekleyen = kerizBekleyenListe(magaza, ayakta);
+        const girisler = ((ayakta && ayakta.girisler) || []).filter(function (g) { return +g.tur === +(ayakta.tur || 1); });
+        const toplam = kerizToplam(magaza, ayakta);
+        const ad = function (sl) {
+            const o = ((kurulum && kurulum.oyuncular) || []).find(function (x) { return x.slug === sl; });
+            return (o && o.isim) || sl;
+        };
+        const satirlar = bekleyen.slice().sort(function (a, b) { return b.zaman - a.zaman; }).map(function (c) {
+            return H("div", { key: c.id, className: "pr-row" },
+                H("span", null, ad(c.slug) + " · " + c.hafta + ". hf · " + (c.tur === "kupon" ? "kupon yok" : "rulet yok")),
+                H("strong", null, paraYaz(c.miktar)));
+        }).concat(girisler.map(function (g, i) {
+            return H("div", { key: "g-" + g.slug + "-" + i, className: "pr-row" },
+                H("span", null, ad(g.slug) + " · rulet girişi"),
+                H("strong", null, paraYaz(g.miktar)));
+        }));
+        return H("div", { className: "kp-kat kz-kasa" },
+            H("div", { className: "kp-et" }, "Kasa: Keriz Parası"),
+            H("strong", { className: "kz-tutar" }, paraYaz(toplam)),
+            H("p", { className: "pr-muted" }, "Rulet girişi (" + paraYaz(AYAKTA_UCRET) + ") ile kuponu/" + "ruleti olmayanların cezası (" + paraYaz(CEZA_KUPON) + " / " + paraYaz(CEZA_RULET) + ") burada birikir. Ruleti kazanan alır. Herkes elenirse sonraki tura kalır."),
+            satirlar.length ? satirlar.slice(0, 12) : H("p", { className: "pr-muted", style: { marginBottom: 0 } }, "Henüz birikim yok."));
+    }
+    function kerizSerit() {
+        return H("div", { className: "kp-kat kz-kasa", style: { padding: "10px 14px" } },
+            H("div", { className: "pr-row", style: { padding: 0, border: "none" } },
+                H("span", { style: { fontWeight: 700 } }, "Kasa: Keriz Parası"),
+                H("strong", { className: "kz-tutar", style: { fontSize: 20, margin: 0 } }, paraYaz(kerizToplam(magaza, ayakta)))));
+    }
+    async function satinAl(id) {
+        if (!ben) throw new Error("Giriş yok.");
+        const u = magazaUrun(id);
+        if (!u) throw new Error("Ürün bulunamadı.");
+        await magazaKaydet((m) => {
+            if (kalanStok(id, m) <= 0) throw new Error(u.ad + " tükendi.");
+            const n = nakitHesap(ben.slug, m);
+            if (n < u.fiyat) throw new Error("Bakiyen yetmiyor. " + paraYaz(n) + " var.");
+            m.alimlar.push({
+                id: Date.now() + "-" + Math.random().toString(36).slice(2),
+                slug: ben.slug, urun: id, fiyat: u.fiyat, zaman: Date.now(),
+            });
+            return m;
+        }, u.ad + " senin. Kasadan " + paraYaz(u.fiyat) + " düştü — servetin duruyor.");
+        setSatinOnay(null);
+        await gunlukYaz(audit("Mağaza", ben.isim + " " + u.ad + " aldı · " + paraYaz(u.fiyat)));
+    }
+    async function zekatGonder() {
+        if (!ben) throw new Error("Giriş yok.");
+        const weeks = (tablo && tablo.haftalar) || [];
+        if (!weeks.length) throw new Error("İlk hafta kapanınca zekât açılır.");
+        const h = weeks[weeks.length - 1];
+        if (!h) throw new Error("Hafta bulunamadı.");
+        const sonuncular = haftaOdul(h).filter(x => x.unvan === "dallama");
+        if (!sonuncular.length) throw new Error("Bu haftada sonuncu yok.");
+        if (sonuncular.some(x => x.slug === ben.slug))
+            throw new Error("Bu hafta sonuncusun — zekât veremezsin, alırsın.");
+        const miktar = parseFloat(String(zekatMiktar).replace(",", "."));
+        if (!Number.isFinite(miktar) || miktar < 0.01)
+            throw new Error("Miktar en az 0,01 € olmalı.");
+        const yuvar = Math.round(miktar * 100) / 100;
+        await magazaKaydet((m) => {
+            if ((m.zekat || []).some(z => z.veren === ben.slug && +z.hafta === +h.no))
+                throw new Error(h.no + ". hafta için zekâtını zaten verdin.");
+            const n = nakitHesap(ben.slug, m);
+            if (n < yuvar) throw new Error("Bakiyen yetmiyor. " + paraYaz(n) + " var.");
+            const pay = Math.round((yuvar / sonuncular.length) * 100) / 100;
+            sonuncular.forEach((x, i) => {
+                const p = i === 0 ? Math.round((yuvar - pay * (sonuncular.length - 1)) * 100) / 100 : pay;
+                m.zekat.push({
+                    id: Date.now() + "-" + i + "-" + Math.random().toString(36).slice(2),
+                    veren: ben.slug, alan: x.slug, miktar: p, hafta: h.no, zaman: Date.now(),
+                });
+            });
+            return m;
+        }, h.no + ". haftanın sonuncusuna " + paraYaz(yuvar) + " zekât gitti.");
+        setZekatMiktar("");
+        setZekatOnay(false);
+        const adlar = sonuncular.map(x => x.isim).join(", ");
+        await gunlukYaz(audit("Zekât", ben.isim + " → " + adlar + " · " + paraYaz(yuvar) + " · " + h.no + ". hafta"));
+    }
+    function erzakHedefKisi(mag = magaza) {
+        const weeks = (tablo && tablo.haftalar) || [];
+        const oy = (kurulum && kurulum.oyuncular) || [];
+        if (!weeks.length || !oy.length) return null;
+        const hNo = weeks[weeks.length - 1].no;
+        const kilit = {
+            alimlar: mag.alimlar || [],
+            zekat: mag.zekat || [],
+            erzak: (mag.erzak || []).filter(z => +z.hafta !== +hNo),
+        };
+        return oy.slice().sort((a, b) =>
+            (servetHesap(a.slug, kilit) - servetHesap(b.slug, kilit))
+            || (nakitHesap(a.slug, kilit) - nakitHesap(b.slug, kilit))
+            || a.slug.localeCompare(b.slug))[0];
+    }
+    async function erzakGonder() {
+        if (!ben) throw new Error("Giriş yok.");
+        const weeks = (tablo && tablo.haftalar) || [];
+        if (!weeks.length) throw new Error("İlk hafta kapanınca erzak açılır.");
+        const h = weeks[weeks.length - 1];
+        await magazaKaydet((m) => {
+            const hedef = erzakHedefKisi(m);
+            if (!hedef) throw new Error("Erzak için hedef yok.");
+            if (hedef.slug === ben.slug) throw new Error("Para sıralamasında en sondasın — erzak alırsın, gönderemezsin.");
+            if ((m.erzak || []).some(z => z.veren === ben.slug && +z.hafta === +h.no))
+                throw new Error(h.no + ". hafta için torbanı zaten gönderdin.");
+            const n = nakitHesap(ben.slug, m);
+            if (n < ERZAK_FIYAT) throw new Error("Bakiyen yetmiyor. " + paraYaz(n) + " var.");
+            m.erzak.push({
+                id: Date.now() + "-" + Math.random().toString(36).slice(2),
+                veren: ben.slug, alan: hedef.slug, miktar: ERZAK_FIYAT, hafta: h.no, zaman: Date.now(),
+            });
+            return m;
+        }, erzakHedefKisi().isim + " evine 50 €'luk erzak gitti. Nakit yazılmaz.");
+        setErzakOnay(false);
+        const hedef = erzakHedefKisi();
+        await gunlukYaz(audit("Erzak", ben.isim + " → " + (hedef ? hedef.isim : "?") + " · " + h.no + ". hf · " + paraYaz(ERZAK_FIYAT)));
+    }
+    async function ayaktaKaydet(mutator, mesaj) {
+        let sonHata = null;
+        for (let deneme = 0; deneme < 3; deneme++) {
+            const kayit = await depo.get("kpn:" + lig + ":ayakta");
+            const onceki = ayaktaNorm(kayit && okuJSON(kayit.value, AYAKTA_BOS));
+            const taslak = JSON.parse(JSON.stringify(onceki));
+            const yeni = mutator(taslak);
+            if (JSON.stringify(yeni) === JSON.stringify(onceki)) {
+                setAyakta(onceki);
+                return onceki;
+            }
+            try {
+                await depo.kosulluSet("kpn:" + lig + ":ayakta", JSON.stringify(yeni), kayit ? kayit.value : null);
+                setAyakta(yeni);
+                if (mesaj) setBilgi(mesaj);
+                return yeni;
+            } catch (e) {
+                sonHata = e;
+                if (deneme === 2 || String(e && e.message).indexOf("başka bir cihaz") < 0) throw e;
+            }
+        }
+        throw sonHata;
+    }
+    function ayaktaGirisAcik() {
+        if (!aktif || ruletKapali) return false;
+        if (ayakta.turBitisHafta != null && +ayakta.turBitisHafta === +aktif.hafta) return false;
+        if (ayakta.baslangicHafta == null) return true;
+        return +ayakta.baslangicHafta === +aktif.hafta;
+    }
+    async function ayaktaGir() {
+        if (!ben) throw new Error("Giriş yok.");
+        if (!aktif || ruletKapali) throw new Error("İlk maç başladı. Rulet bu hafta kapandı.");
+        if (!ayaktaGirisAcik()) throw new Error("Bu tur başladı. Sonraki turda girersin.");
+        const y = await ayaktaKaydet(function (a) {
+            if (a.girenler.indexOf(ben.slug) >= 0) throw new Error("Bu turdasın.");
+            const n = nakitHesap(ben.slug, magaza, a);
+            if (n < AYAKTA_UCRET) throw new Error("Giriş " + paraYaz(AYAKTA_UCRET) + ". Bakiyen " + paraYaz(n) + ".");
+            a.girenler.push(ben.slug);
+            a.canli.push(ben.slug);
+            a.girisler.push({ slug: ben.slug, tur: a.tur, miktar: AYAKTA_UCRET, zaman: Date.now() });
+            a.kasa = Math.round((a.kasa + AYAKTA_UCRET) * 100) / 100;
+            if (a.baslangicHafta == null) a.baslangicHafta = +aktif.hafta;
+            return a;
+        }, "Tura girdin. " + paraYaz(AYAKTA_UCRET) + " Keriz Parası kasasına yazıldı. Bu hafta bir takım seç.");
+        setAyGirisOnay(false);
+        await gunlukYaz(audit("Rulet", ben.isim + " tur " + y.tur + " · giriş " + paraYaz(AYAKTA_UCRET)));
+    }
+    async function ayaktaKilitle() {
+        if (!ben) throw new Error("Giriş yok.");
+        if (!aktif || ruletKapali) throw new Error("İlk maç başladı. El kilitlenemez.");
+        if (aySec == null) throw new Error("Takım seç.");
+        const idx = +aySec;
+        await ayaktaKaydet(function (a) {
+            if (a.canli.indexOf(ben.slug) < 0) throw new Error("Bu turda hayatta değilsin.");
+            const hf = String(aktif.hafta);
+            if (!a.secimler[hf]) a.secimler[hf] = {};
+            if (a.secimler[hf][ben.slug] != null) throw new Error("Bu hafta seçimin kilitli.");
+            const kullan = a.kullanilan[ben.slug] || [];
+            if (kullan.indexOf(idx) >= 0) throw new Error("Bu takımı bu turda kullandın.");
+            const oynar = (aktif.maclar || []).some(function (m) { return +m.e === idx || +m.d === idx; });
+            if (!oynar) throw new Error("Bu takım bu hafta oynamıyor.");
+            a.secimler[hf][ben.slug] = idx;
+            a.kullanilan[ben.slug] = kullan.concat([idx]);
+            return a;
+        }, T(idx).ad + " kilitlendi. Elin gizli — maçın bitince masaya düşer.");
+        setAySec(null);
+        setAySecOnay(false);
+        await gunlukYaz(audit("Rulet kilit", ben.isim + " · kör · " + aktif.hafta + ". hf"));
+    }
+    async function ayaktaSonucIsle(h, opts) {
+        if (MISAFIR) return "";
+        const teslim = !!(opts && opts.teslimKapali);
+        const zorla = !!(opts && opts.zorla);
+        if (!h || h.no == null) return "";
+        let ilanlar = [];
+        let bitis = "";
+        const magKayit = await depo.get("kpn:" + lig + ":magaza");
+        const magSnap = (magKayit && okuJSON(magKayit.value, MAGAZA_BOS)) || MAGAZA_BOS;
+        const y = await ayaktaKaydet(function (a) {
+            const r = ayaktaUygulaSonuclar(a, h, teslim, zorla);
+            ilanlar = r.ilanlar;
+            bitis = r.bitisMesaj;
+            if (bitis === "kazandi" && a.gecmis && a.gecmis.length) {
+                const g = a.gecmis[a.gecmis.length - 1];
+                if (g && g.kazanan && !g.devir && !g.kerizEklendi) {
+                    const bekleyen = kerizBekleyenListe(magSnap, a);
+                    const ids = bekleyen.map(function (c) { return c.id; }).filter(Boolean);
+                    const extra = bekleyen.reduce(function (s, c) { return s + (+c.miktar || 0); }, 0);
+                    g.kasa = Math.round((+g.kasa + extra) * 100) / 100;
+                    g.kerizIds = ids;
+                    g.kerizEklendi = true;
+                }
+            }
+            return r.a;
+        });
+        if (bitis === "kazandi") {
+            const g = y && y.gecmis && y.gecmis[y.gecmis.length - 1];
+            const ids = (g && g.kerizIds) || [];
+            if (ids.length) {
+                const set = {};
+                ids.forEach(function (id) { set[id] = true; });
+                await magazaKaydet(function (m) {
+                    m.cezalar = (m.cezalar || []).map(function (c) {
+                        if (set[c.id] && !c.odendi) {
+                            c.odendi = true;
+                            c.odemeZaman = Date.now();
+                        }
+                        return c;
+                    });
+                    return m;
+                });
+            }
+        }
+        if (ilanlar.length || bitis) {
+            const parca = ilanlar.map(function (x) {
+                const ad = oyuncuAd(x.slug);
+                const takimAd = x.takim != null ? T(x.takim).ad : "";
+                if (x.neden === "G") return ad + " kaldı · " + ruletNedenYaz(x.neden, takimAd);
+                return ad + " elendi · " + ruletNedenYaz(x.neden, takimAd);
+            });
+            if (bitis === "kazandi" && y && y.gecmis && y.gecmis.length) {
+                const g = y.gecmis[y.gecmis.length - 1];
+                parca.push(oyuncuAd(g.kazanan) + " ruleti kazandı · Keriz Parası " + paraYaz(g.kasa));
+            } else if (bitis === "devir") {
+                parca.push("Herkes elendi. Keriz Parası sonraki tura devretti.");
+            }
+            const txt = parca.join(" · ");
+            await gunlukYaz(audit("Rulet", h.no + ". hf · " + txt));
+            setBilgi(txt);
+            return txt;
+        }
+        return "";
+    }
+    async function ayaktaHaftaBitir(h) {
+        return ayaktaSonucIsle(h, { teslimKapali: true, zorla: true });
+    }
+    const aktifOranlar = useMemo(() => {
+        if (!aktif || !aktif.maclar) return [];
+        if (aktif.oranlar && aktif.oranlar.length === aktif.maclar.length) return aktif.oranlar;
+        return macOranlari(aktif.maclar, takimlar, (tablo && tablo.haftalar) || []);
+    }, [aktif, tablo, takimlar]);
+    function transferFiyat(idx) {
+        const weeks = ((tablo && tablo.haftalar) || []).length || 1;
+        const p = takimPuan(idx);
+        return Math.max(1, Math.round(p * (34 / weeks) - FIYAT_TABAN));
+    }
+    const transferAcik = !!(transfer && !transfer.uygulandi && Date.now() < transfer.kapanis);
+    async function transferPencereAc() {
+        if ((tablo && tablo.haftalar || []).length < TRANSFER_SONRA) throw new Error("Pencere " + TRANSFER_SONRA + ". hafta kapanınca açılır.");
+        if (transfer && transfer.acilis) throw new Error("Pencere zaten açıldı.");
+        const kayit = await depo.get(`kpn:${lig}:transfer`);
+        if (kayit && okuJSON(kayit.value, null)) throw new Error("Pencere başka cihazda açılmış. Yenile.");
+        const y = { acilis: Date.now(), kapanis: Date.now() + TRANSFER_GUN_MS, kilitler: {}, uygulandi: false };
+        await depo.kosulluSet(`kpn:${lig}:transfer`, JSON.stringify(y), kayit ? kayit.value : null);
+        setTransfer(y);
+        setBilgi("Transfer penceresi 3 gün açık. Seçimler kör.");
+        await gunlukYaz(audit("Transfer", "Pencere açıldı · 3 gün"));
+    }
+    async function transferKilitle(pas) {
+        if (!ben) throw new Error("Giriş yok.");
+        if (!transferAcik) throw new Error("Pencere kapalı.");
+        const p = portfoy[ben.slug];
+        if (!p) throw new Error("Portföyün yok.");
+        if (p.transfer) throw new Error("Bu sezon hakkını kullandın.");
+        if ((transfer.kilitler || {})[ben.slug]) throw new Error("Transferin kilitli.");
+        let kayitIcerik = { pas: true };
+        if (!pas) {
+            if (trSat == null || trAl == null) throw new Error("Satılacak ve alınacak takımı seç.");
+            if (+trSat === +trAl) throw new Error("Aynı takım.");
+            if (!(p.takimlar || []).map(Number).includes(+trSat)) throw new Error("Satacağın takım sende yok.");
+            if ((p.takimlar || []).map(Number).includes(+trAl)) throw new Error("O takım zaten sende.");
+            if ((p.yasak || []).map(Number).includes(+trAl)) throw new Error("Sattığın takımı geri alamazsın.");
+            const satF = transferFiyat(+trSat), alF = transferFiyat(+trAl);
+            const kalan = KREDI - (p.harcanan || 0) + satF - alF - TRANSFER_KOMISYON;
+            if (kalan < 0) throw new Error("Kredi yetmiyor. Komisyon " + TRANSFER_KOMISYON + "k. Kalan " + kalan + "k.");
+            kayitIcerik = { sat: +trSat, al: +trAl, satF, alF, pas: false };
+        }
+        const kayit = await depo.get(`kpn:${lig}:transfer`);
+        const cur = (kayit && okuJSON(kayit.value, null)) || transfer;
+        if ((cur.kilitler || {})[ben.slug]) throw new Error("Transferin kilitli.");
+        const y = { ...cur, kilitler: { ...(cur.kilitler || {}), [ben.slug]: { ...kayitIcerik, zaman: Date.now() } } };
+        await depo.kosulluSet(`kpn:${lig}:transfer`, JSON.stringify(y), kayit ? kayit.value : null);
+        setTransfer(y);
+        setTrOnay(false);
+        setBilgi(pas ? "Bu sezon transfer yok, kilitlendi." : "Transfer kilitlendi. Pencere kapanınca açılır.");
+        await gunlukYaz(audit("Transfer kilit", ben.isim + (pas ? " · pas" : " · kör")));
+        await transferUygula(false).catch(() => {});
+    }
+    async function transferUygula(zorla) {
+        const trKayit = await depo.get(`kpn:${lig}:transfer`);
+        const cur = (trKayit && okuJSON(trKayit.value, null)) || transfer;
+        if (!cur || cur.uygulandi) { setTransfer(cur); return; }
+        const bitti = Date.now() >= cur.kapanis;
+        const kilitSay = Object.keys(cur.kilitler || {}).length;
+        const pfSay = Object.keys(portfoy || {}).length;
+        if (!zorla && !bitti && !(pfSay > 0 && kilitSay >= pfSay)) return;
+        const pfKayit = await depo.get(`kpn:${lig}:portfoy`);
+        const pf = (pfKayit && okuJSON(pfKayit.value, {})) || {};
+        const yPf = { ...pf };
+        Object.entries(cur.kilitler || {}).forEach(([sl, k]) => {
+            if (!yPf[sl] || k.pas || yPf[sl].transfer) return;
+            const tk = (yPf[sl].takimlar || []).map(Number);
+            const i = tk.indexOf(+k.sat);
+            if (i < 0) return;
+            tk[i] = +k.al;
+            yPf[sl] = {
+                ...yPf[sl],
+                takimlar: tk,
+                harcanan: (yPf[sl].harcanan || 0) - (k.satF || 0) + (k.alF || 0) + TRANSFER_KOMISYON,
+                transfer: { sat: +k.sat, al: +k.al },
+                yasak: [ ...((yPf[sl].yasak) || []), +k.sat ],
+            };
+        });
+        const yTr = { ...cur, uygulandi: true, acilisBitis: Date.now() };
+        await depo.kosulluSet(`kpn:${lig}:portfoy`, JSON.stringify(yPf), pfKayit ? pfKayit.value : null);
+        await depo.kosulluSet(`kpn:${lig}:transfer`, JSON.stringify(yTr), trKayit ? trKayit.value : JSON.stringify(cur));
+        setPortfoy(yPf);
+        setTransfer(yTr);
+        setBilgi("Transferler açıldı.");
+        await gunlukYaz(audit("Transfer açıldı", Object.keys(cur.kilitler || {}).length + " kilit uygulandı."));
+    }
+    useEffect(() => {
+        if (!lig || !ben || !tablo) return;
+        if ((tablo.haftalar || []).length < TRANSFER_SONRA) return;
+        if (transfer && !transfer.uygulandi) transferUygula(false).catch(() => {});
+        if (!transfer) transferPencereAc().catch(() => {});
+    }, [lig, ben, tablo && tablo.haftalar && tablo.haftalar.length, transfer && transfer.uygulandi]);
+    const transferSuresiBitti = !!(transfer && !transfer.uygulandi && simdi >= transfer.kapanis);
+    useEffect(() => {
+        if (transferSuresiBitti) transferUygula(false).catch(() => {});
+    }, [transferSuresiBitti]);
+    function koleksiyon(slug) {
+        const weeks = (tablo && tablo.haftalar) || [];
+        const oy = ((kurulum && kurulum.oyuncular) || []);
+        const roz = [];
+        let kartOk = 0, kara = 0, streak = 0, maxStreak = 0;
+        weeks.forEach(h => {
+            const dt = (h.detay && h.detay[slug]) || [];
+            const tam = dt.filter(tamSkorPuani).length;
+            if (tam >= 4) roz.push({ id: "kahin" });
+            const kp = kartPuan((h.kartlar || {})[slug], h.sonuclar, h.oranlar);
+            if (kp > 0) kartOk++;
+            const jk = h.jokerler && h.jokerler[slug];
+            if (jk != null && dt[jk] === 10) { streak++; maxStreak = Math.max(maxStreak, streak); }
+            else streak = 0;
+            (h.maclar || []).forEach((m, i) => {
+                if (T(m.e).kod !== "BJK" && T(m.d).kod !== "BJK") return;
+                if (tamSkorPuani(dt[i] || 0)) kara++;
+            });
+        });
+        if (kartOk >= 8) roz.push({ id: "surpriz" });
+        if (maxStreak >= 5) roz.push({ id: "banko" });
+        if (kara >= 10) roz.push({ id: "kartal" });
+        /* Küllerinden: ilk 10 hafta sonuncu, sonra ilk 2 */
+        if (weeks.length >= 10 && oy.length > 1) {
+            const birik = {};
+            oy.forEach(o => { birik[o.slug] = 0; });
+            weeks.slice(0, 10).forEach(h => {
+                oy.forEach(o => { birik[o.slug] += (h.puanlar && h.puanlar[o.slug]) || 0; });
+            });
+            const sira10 = KAnaliz.rank(birik);
+            const me10 = sira10.find(x => x.slug === slug);
+            const sonSira = Math.max(...sira10.map(x => x.sira));
+            if (me10 && me10.sira === sonSira) {
+                weeks.slice(10).forEach(h => {
+                    oy.forEach(o => { birik[o.slug] += (h.puanlar && h.puanlar[o.slug]) || 0; });
+                    const me = KAnaliz.rank(birik).find(x => x.slug === slug);
+                    if (me && me.sira <= 2) roz.push({ id: "kuller" });
+                });
+            }
+        }
+        /* Portföy Baron’u: 10. haftadan sonra 20+ farkla tek lider */
+        if (weeks.length >= 10 && oy.length > 1) {
+            const pfs = oy.map(o => ({ slug: o.slug, p: portfoyPuan(o.slug) })).sort((a, b) => b.p - a.p);
+            if (pfs[0].slug === slug && (pfs[0].p - pfs[1].p) >= 20) roz.push({ id: "baron" });
+        }
+        /* Derbi kasabı: derbi maçının tam skoru */
+        weeks.forEach(h => {
+            const dt = (h.detay && h.detay[slug]) || [];
+            (h.maclar || []).forEach((m, i) => {
+                if (!BUYUK4.includes(T(m.e).kod) || !BUYUK4.includes(T(m.d).kod)) return;
+                if (tamSkorPuani(dt[i] || 0)) roz.push({ id: "derbi" });
+            });
+        });
+        const uniq = [];
+        roz.forEach(r => {
+            if (uniq.some(x => x.id === r.id)) return;
+            uniq.push({ id: r.id, ad: rozetAd(r.id) });
+        });
+        return { rozet: uniq, kartOk, kara, maxStreak };
+    }
+    /* ---------- stil ---------- */
+    const stil = `
+.kp{
+  --bg:#F3E8D6;--kat:#FFF8EC;--kat2:#EDE0CC;--cizgi:#DCCBB4;--fg:#2C241C;--sol:#7A6E60;
+  --aksan:#9C4B3A;--aksan-fg:#FFF8EC;--banko:#A67C2D;--kirmizi:#C45C4A;--yesil:#4F7A48;
+  --kagit:#FFF6E8;--murekkep:#2C241C;--kagit-sol:#7A6E60;
+  --r-xs:4px;--r-sm:8px;--r-md:12px;--r-lg:20px;
+  --ease:cubic-bezier(.22,1,.36,1);
+  background:var(--bg);
+  background-image:radial-gradient(90% 48% at 50% -8%,#FFF6E6 0%,transparent 70%);
+  color:var(--fg);
+  font-family:Figtree,system-ui,sans-serif;
+  height:100%;min-height:100%;max-height:100%;
+  height:100dvh;max-height:100dvh;
+  width:100%;max-width:100%;min-width:0;
+  display:flex;flex-direction:column;
+  overflow:hidden;
+  -webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;
+}
+html,body,#kok{height:100%;height:100dvh;max-height:100%;max-height:100dvh;overflow:hidden;overscroll-behavior:none;margin:0;background:#F3E8D6;}
+.kp *{box-sizing:border-box;}
+.kp h1,.kp h2,.kp h3{text-wrap:balance;}
+.kp p{text-wrap:pretty;}
+.kp-mono{font-family:'IBM Plex Mono',ui-monospace,monospace;font-variant-numeric:tabular-nums;}
+.kp-h{font-family:Fraunces,Georgia,serif;font-weight:560;font-optical-sizing:auto;letter-spacing:-.03em;line-height:1.08;}
+.kp-mark{font-family:Fraunces,Georgia,serif;font-style:italic;font-weight:560;font-optical-sizing:auto;letter-spacing:-.04em;line-height:.9;font-size:clamp(3.4rem,12vw,4.75rem);color:var(--fg);margin:0;}
+.kp-masthead{padding:8px 0 6px;border-bottom:1px solid var(--cizgi);margin-bottom:22px;}
+.kp-mast-meta{font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--sol);margin-bottom:14px;}
+.kp-mast-sub{font-size:14px;color:var(--sol);margin:10px 0 0;letter-spacing:.02em;}
+.kp-ust{z-index:30;background:color-mix(in oklab,var(--bg) 94%,transparent);border-bottom:1px solid var(--cizgi);padding:14px 16px;display:flex;justify-content:space-between;align-items:center;gap:10px;flex-shrink:0;}
+.kp-misafir{display:inline-flex;align-items:center;justify-content:center;min-width:50px;height:50px;border-radius:50%;border:1px solid var(--cizgi);font-size:9px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--sol);}
+.kp-ic{padding:16px 16px 24px;max-width:620px;margin:0 auto;width:100%;min-width:0;flex:1 1 auto;min-height:0;overflow-x:hidden;overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;}
+.kp-masa-col{flex:1 1 auto;min-width:0;min-height:0;display:flex;flex-direction:column;overflow:hidden;width:100%;}
+.kp-masa{display:flex;flex-direction:column;gap:0;}
+.kp-kat{background:var(--kat);border:1px solid var(--cizgi);border-radius:var(--r-lg);padding:16px;margin-bottom:12px;}
+.kp-et{font-family:'IBM Plex Mono',monospace;font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--banko);font-weight:700;margin-bottom:10px;}
+
+.kp-kagit{position:relative;background:var(--kagit);color:var(--murekkep);border-radius:var(--r-sm);padding:26px 16px 18px;margin-bottom:12px;box-shadow:0 12px 32px rgba(80,50,20,.12);font-family:'IBM Plex Mono',monospace;border-top:3px solid var(--kirmizi);}
+.kp-kagit:before,.kp-kagit:after{display:none;}
+.kp-kbas{display:flex;justify-content:space-between;font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--kagit-sol);border-bottom:1px solid color-mix(in oklab,var(--murekkep) 18%,transparent);padding-bottom:10px;margin-bottom:6px;}
+.kp-msatir{display:grid;grid-template-columns:28px 1fr auto 1fr 30px;gap:6px;align-items:center;padding:10px 0;border-bottom:1px solid color-mix(in oklab,var(--murekkep) 10%,transparent);font-size:13px;}
+.kp-msatir:last-child{border-bottom:none;}
+.kp-ev{text-align:right;font-weight:600;}
+.kp-dep{text-align:left;font-weight:600;}
+.kp-sayac{display:flex;align-items:center;gap:3px;}
+.kp-sbtn{width:32px;height:44px;border:1px solid color-mix(in oklab,var(--murekkep) 22%,transparent);background:transparent;color:var(--murekkep);border-radius:var(--r-xs);font-size:16px;line-height:1;cursor:pointer;font-family:'IBM Plex Mono',monospace;transition:background .15s var(--ease);}
+.kp-sbtn:active{background:color-mix(in oklab,var(--murekkep) 8%,transparent);transform:scale(.98);}
+.kp-skor{font-size:18px;font-weight:700;min-width:20px;text-align:center;font-variant-numeric:tabular-nums;}
+.kp-joker{width:32px;height:44px;border-radius:var(--r-xs);border:1.5px solid color-mix(in oklab,var(--murekkep) 22%,transparent);background:transparent;color:var(--kagit-sol);font-size:12px;font-weight:700;cursor:pointer;font-family:'IBM Plex Mono',monospace;transition:background .15s var(--ease),color .15s var(--ease),border-color .15s var(--ease);}
+.kp-joker.on{background:var(--kirmizi);border-color:var(--kirmizi);color:#F3EEE4;}
+.kp-muhur{position:absolute;right:12px;top:42px;transform:rotate(-12deg);border:2px solid var(--kirmizi);color:var(--kirmizi);font-family:Fraunces,Georgia,serif;font-style:italic;font-weight:700;font-size:13px;letter-spacing:.04em;padding:7px 12px;border-radius:2px;opacity:.9;background:color-mix(in oklab,var(--kagit) 70%,transparent);}
+.kp-gazete{position:relative;background:#FBF4E6;background-image:repeating-linear-gradient(0deg,transparent,transparent 26px,rgba(44,36,28,.045) 27px),linear-gradient(180deg,#FFFDF6 0%,#F6EBDA 100%);color:#1A1610;border:1px solid #2C241C;padding:0;margin:10px 0 14px;box-shadow:5px 6px 0 #2C241C;}
+.kp-gazete-name{font-family:Fraunces,Georgia,serif;font-weight:700;font-size:clamp(1.8rem,8vw,2.4rem);letter-spacing:.18em;text-transform:uppercase;text-align:center;padding:14px 16px 2px;line-height:1;}
+.kp-gazete-ust{display:flex;justify-content:space-between;align-items:baseline;gap:8px;font-family:'IBM Plex Mono',monospace;font-size:9px;letter-spacing:.14em;text-transform:uppercase;border-top:1px solid #2C241C;border-bottom:3px double #2C241C;padding:6px 14px;color:#6F675C;}
+.kp-gazete-bas{font-family:Fraunces,Georgia,serif;font-style:italic;font-weight:700;font-size:clamp(1.45rem,6.4vw,2.05rem);line-height:1.12;letter-spacing:-.035em;margin:0;padding:16px 16px 12px;text-align:center;color:#7D2F24;}
+.kp-gazete-govde{display:grid;grid-template-columns:1fr;gap:10px;padding:0 16px 16px;border-top:1px solid rgba(44,36,28,.18);}
+.kp-gazete-dip{font-size:13.5px;line-height:1.55;color:#3A322A;margin:10px 0 0;font-family:Fraunces,Georgia,serif;font-style:italic;}
+.kp-gazete-rz{display:flex;align-items:center;gap:10px;border:1px dashed #7D2F24;padding:7px 10px;margin-top:8px;width:fit-content;max-width:100%;}
+.kp-gazete-rz-yazi{font-size:12.5px;line-height:1.4;color:#3A322A;}
+.kp-gazete-kapa{position:absolute;top:4px;right:4px;background:none;border:none;color:#6F675C;font-size:18px;min-width:36px;min-height:36px;cursor:pointer;}
+.kp-rz-muhur{display:inline-block;flex-shrink:0;transform:rotate(-6deg);border:2px solid #7D2F24;color:#7D2F24;font-family:Fraunces,Georgia,serif;font-style:italic;font-weight:700;font-size:11px;letter-spacing:.02em;line-height:1;padding:5px 8px;white-space:nowrap;}
+.kp-rz-cip{border-color:#7D2F24!important;color:#7D2F24!important;background:color-mix(in oklab,#7D2F24 10%,transparent)!important;}
+.ol-oran{font-family:'IBM Plex Mono',monospace;font-size:9px;letter-spacing:.04em;color:var(--kagit-sol);text-align:center;padding-top:2px;}
+.ol-kart{display:grid;grid-template-columns:1fr;gap:8px;margin-top:12px;}
+.ol-sec{border:1px solid var(--cizgi);background:var(--kat);border-radius:var(--r-sm);padding:10px 12px;text-align:left;cursor:pointer;width:100%;min-height:44px;}
+.ol-sec.on{border-color:var(--aksan);background:color-mix(in oklab,var(--aksan) 10%,var(--kat));}
+.ol-sec b{display:block;font-size:13px;}
+.ol-sec span{display:block;font-size:11.5px;color:var(--sol);margin-top:3px;line-height:1.4;}
+.rz-cip{display:inline-flex;align-items:center;font-family:'IBM Plex Mono',monospace;font-size:8.5px;font-weight:700;letter-spacing:.06em;padding:2px 6px;border-radius:99px;border:1px solid var(--cizgi);color:var(--fg);margin-left:4px;vertical-align:middle;}
+.cr-sat{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--cizgi);font-size:13.5px;}
+.rz-soz{padding:12px 0;border-bottom:1px solid var(--cizgi);}
+.rz-soz:last-child{border-bottom:none;}
+.rz-soz-ust{display:flex;align-items:center;justify-content:space-between;gap:10px;}
+.rz-soz-kim{display:flex;align-items:center;gap:4px;flex-shrink:0;}
+.rz-soz-kim em{font-size:11.5px;color:var(--sol);font-style:italic;font-family:Figtree,sans-serif;font-weight:400;letter-spacing:0;}
+.rz-soz-acik{margin:6px 0 0;font-size:12.5px;line-height:1.45;color:var(--sol);}
+.rz-soz .rz-cip{margin-left:0;}
+.tr-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:8px;}
+.ay-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px;margin-top:10px;}
+.ay-tak{border:1px solid var(--cizgi);background:var(--kat);border-radius:12px;padding:12px 8px;text-align:center;min-height:64px;cursor:pointer;width:100%;min-width:0;}
+.ay-tak.on{border-color:#7D2F24;background:color-mix(in oklab,#7D2F24 12%,var(--kat));color:#7D2F24;}
+.ay-tak.pas{opacity:.34;cursor:default;}
+.ay-tak b{display:block;font-family:'IBM Plex Mono',monospace;font-size:15px;font-weight:700;letter-spacing:.04em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.ay-tak span{display:block;font-size:10px;color:var(--sol);margin-top:3px;line-height:1.25;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.ay-tak.on span{color:#7D2F24;}
+.ay-kisi{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--cizgi);}
+.ay-kisi:last-child{border-bottom:none;}
+.ay-kilit{position:sticky;bottom:0;z-index:6;background:linear-gradient(180deg,transparent 0%,var(--bg) 18%,var(--bg) 100%);padding:16px 0 4px;margin-top:8px;}
+.rl-hero{padding:16px 16px 14px;margin-bottom:12px;background:#FAF1E0;border:1px solid #2C241C;box-shadow:3px 3px 0 #2C241C;}
+.rl-ust{display:flex;align-items:center;gap:14px;}
+.rl-cark{width:84px;height:84px;flex-shrink:0;color:#7D2F24;display:block;overflow:visible;transform-origin:50% 50%;}
+.rl-cark.don{animation:rl-don 32s linear infinite;}
+@keyframes rl-don{to{transform:rotate(360deg);}}
+.rl-bas{min-width:0;flex:1;}
+.rl-hero h1{font-family:Fraunces,Georgia,serif;font-style:italic;font-weight:700;font-size:clamp(2.15rem,11vw,2.85rem);letter-spacing:-.045em;line-height:.9;margin:0;color:#7D2F24;}
+.rl-hero p{margin:8px 0 0;font-size:13.5px;line-height:1.5;color:var(--sol);}
+.rl-meta{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:14px;}
+.rl-meta div{background:var(--kat);border:1px solid var(--cizgi);border-radius:var(--r-md);padding:12px 14px;min-width:0;}
+.rl-meta b{display:block;font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.14em;color:var(--banko);}
+.rl-meta strong{display:block;font-family:'IBM Plex Mono',monospace;font-size:22px;font-weight:700;margin-top:4px;letter-spacing:-.03em;font-variant-numeric:tabular-nums;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.rl-meta em{display:block;font-style:normal;font-size:11.5px;color:var(--sol);margin-top:4px;}
+.rl-yuzler{display:flex;align-items:center;flex-wrap:wrap;gap:6px;margin-top:12px;}
+.rl-yuzler span{font-size:12px;color:var(--sol);}
+
+.kp-dg{background:var(--aksan);color:var(--aksan-fg);border:none;border-radius:var(--r-md);padding:15px;font-family:Figtree,sans-serif;font-size:15px;font-weight:600;cursor:pointer;width:100%;letter-spacing:.01em;transition:transform .15s var(--ease),filter .15s var(--ease);min-height:48px;}
+.kp-dg:hover{filter:brightness(1.04);}
+.kp-dg:active{transform:scale(.98);}
+.kp-dg:disabled{background:var(--cizgi);color:var(--sol);cursor:default;transform:none;filter:none;}
+.kp-dg2{background:transparent;color:var(--fg);border:1px solid var(--cizgi);border-radius:var(--r-md);padding:12px 14px;font-family:Figtree,sans-serif;font-size:13px;font-weight:600;cursor:pointer;transition:border-color .15s var(--ease),background .15s var(--ease);min-height:44px;}
+.kp-dg2:hover{border-color:color-mix(in oklab,var(--fg) 28%,transparent);background:color-mix(in oklab,var(--fg) 4%,transparent);}
+.kp-cip{background:var(--kat2);border:1px solid var(--cizgi);color:var(--sol);border-radius:var(--r-sm);padding:11px 4px;font-size:12px;font-weight:600;cursor:pointer;font-family:'IBM Plex Mono',monospace;text-align:center;transition:background .15s var(--ease),color .15s var(--ease),border-color .15s var(--ease);min-height:44px;}
+.kp-cip.on{background:var(--aksan);border-color:var(--aksan);color:var(--aksan-fg);}
+.kp-cip.pas{opacity:.28;cursor:default;}
+.kp-gir{background:var(--kat2);border:1px solid var(--cizgi);color:var(--fg);padding:13px;border-radius:var(--r-sm);width:100%;font-size:16px;font-family:Figtree,sans-serif;transition:border-color .15s var(--ease),box-shadow .15s var(--ease);}
+.kp-gir:focus{outline:none;border-color:color-mix(in oklab,var(--aksan) 55%,var(--cizgi));box-shadow:0 0 0 3px color-mix(in oklab,var(--aksan) 18%,transparent);}
+.kp-unvan{display:inline-flex;align-items:center;font-family:'IBM Plex Mono',monospace;font-size:9px;font-weight:700;letter-spacing:.09em;padding:3px 8px;border-radius:99px;white-space:nowrap;}
+.kp-unvan.iyi{background:color-mix(in oklab,var(--yesil) 16%,transparent);color:var(--yesil);border:1px solid color-mix(in oklab,var(--yesil) 32%,transparent);}
+.kp-unvan.kotu{background:color-mix(in oklab,var(--kirmizi) 14%,transparent);color:var(--kirmizi);border:1px solid color-mix(in oklab,var(--kirmizi) 28%,transparent);}
+.kp-patlican{width:22px;height:22px;border-radius:6px;object-fit:cover;vertical-align:middle;}
+.kp-banko2x{display:inline-flex;align-items:center;font-family:'IBM Plex Mono',monospace;font-size:9px;font-weight:700;letter-spacing:.09em;padding:3px 8px;border-radius:99px;white-space:nowrap;background:color-mix(in oklab,var(--banko) 16%,transparent);color:var(--banko);border:1px solid color-mix(in oklab,var(--banko) 32%,transparent);}
+.kp-para{font-family:'IBM Plex Mono',monospace;font-size:14px;font-weight:700;color:var(--fg);white-space:nowrap;letter-spacing:-.01em;font-variant-numeric:tabular-nums;}
+.kp-para.iyi{color:var(--yesil);}
+.kp-para.kotu{color:var(--kirmizi);}
+.kp-sira{display:flex;align-items:center;gap:9px;padding:7px 0;}
+
+.gr-kut{background:var(--kat);border:1px solid var(--cizgi);border-radius:var(--r-lg);padding:14px 12px 10px;margin-bottom:12px;}
+.gr-bas{font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.12em;color:var(--sol);margin-bottom:10px;padding:0 2px;}
+.gr-svg{display:block;width:100%;height:auto;overflow:visible;}
+.gr-ef{display:flex;flex-wrap:wrap;gap:9px;margin-top:11px;padding:0 2px;}
+.gr-ef span{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;color:var(--fg);}
+.gr-ef i{width:9px;height:3px;border-radius:2px;display:inline-block;}
+.gr-ef b{font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--sol);font-weight:400;}
+
+.kn-sat{display:grid;grid-template-columns:42px minmax(0,1fr) auto;gap:10px;align-items:start;padding:11px 0;border-bottom:1px solid var(--cizgi);}
+.kn-sat:last-of-type{border-bottom:none;}
+.kn-kod{font-family:'IBM Plex Mono',monospace;font-size:12.5px;font-weight:700;color:var(--sol);padding-top:2px;}
+.kn-orta{min-width:0;}
+.kn-ad{display:flex;flex-wrap:wrap;align-items:center;gap:6px;font-size:14px;color:var(--fg);line-height:1.3;}
+.kn-alt{display:block;font-family:'IBM Plex Mono',monospace;font-size:10.5px;color:var(--sol);margin-top:4px;line-height:1.35;}
+.kn-sag{text-align:right;white-space:nowrap;}
+.kn-fark{font-family:'IBM Plex Mono',monospace;font-size:15px;font-weight:700;font-variant-numeric:tabular-nums;}
+.kn-fark.iyi{color:var(--yesil);} .kn-fark.kotu{color:var(--kirmizi);} .kn-fark.orta{color:var(--sol);}
+.kn-puan{font-family:'IBM Plex Mono',monospace;font-size:10.5px;color:var(--sol);margin-top:2px;}
+.kn-tek{font-family:'IBM Plex Mono',monospace;font-size:8.5px;font-weight:700;color:var(--banko);border:1px solid color-mix(in oklab,var(--banko) 45%,transparent);border-radius:4px;padding:1px 4px;letter-spacing:.05em;white-space:nowrap;}
+
+.tk-roz{display:inline-flex;align-items:center;gap:4px;font-family:'IBM Plex Mono',monospace;font-size:9px;font-weight:700;color:var(--banko);background:color-mix(in oklab,var(--banko) 14%,transparent);border:1px solid color-mix(in oklab,var(--banko) 34%,transparent);border-radius:99px;padding:2px 7px;margin-left:7px;letter-spacing:.05em;}
+
+.pf-ust{position:sticky;top:0;z-index:30;background:color-mix(in oklab,var(--bg) 94%,transparent);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border-bottom:1px solid var(--cizgi);padding:12px 16px 13px;}
+.pf-slotlar{display:grid;grid-template-columns:repeat(4,1fr);gap:7px;margin-bottom:11px;}
+.pf-slot{height:56px;border-radius:var(--r-md);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;border:1px dashed var(--cizgi);background:var(--kat2);transition:border-color .16s var(--ease),background .16s var(--ease);}
+.pf-slot.dolu{border-style:solid;border-color:var(--aksan);background:color-mix(in oklab,var(--aksan) 12%,transparent);cursor:pointer;}
+.pf-slot-kod{font-family:'IBM Plex Mono',monospace;font-size:12.5px;font-weight:700;color:var(--aksan);}
+.pf-slot-f{font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--sol);}
+.pf-slot-bos{font-size:19px;color:var(--cizgi);line-height:1;}
+.pf-butce{display:flex;align-items:center;gap:10px;}
+.pf-cubuk{flex:1;height:6px;border-radius:99px;background:var(--kat2);overflow:hidden;}
+.pf-cubuk i{display:block;height:100%;border-radius:99px;background:var(--aksan);transition:width .22s var(--ease),background .22s var(--ease);}
+.pf-cubuk.dar i{background:var(--banko);}
+.pf-cubuk.tas i{background:var(--kirmizi);}
+.pf-kalan{font-family:'IBM Plex Mono',monospace;font-size:17px;font-weight:700;color:var(--aksan);white-space:nowrap;font-variant-numeric:tabular-nums;}
+.pf-kalan.dar{color:var(--banko);} .pf-kalan.tas{color:var(--kirmizi);}
+.pf-kalan span{font-size:9.5px;color:var(--sol);font-weight:600;margin-left:4px;letter-spacing:.06em;}
+.pf-kusak{display:flex;align-items:baseline;gap:9px;margin:20px 0 9px;}
+.pf-kusak b{font-family:Figtree,sans-serif;font-size:12px;font-weight:700;color:var(--fg);letter-spacing:.06em;text-transform:uppercase;}
+.pf-kusak i{flex:1;height:1px;background:var(--cizgi);font-style:normal;}
+.pf-kusak em{font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--sol);font-style:normal;}
+.pf-satir{display:grid;grid-template-columns:46px minmax(0,1fr) auto;gap:11px;align-items:center;padding:12px 13px;margin-bottom:7px;border-radius:var(--r-md);background:var(--kat);border:1px solid var(--cizgi);transition:border-color .12s var(--ease),background .12s var(--ease);-webkit-tap-highlight-color:transparent;}
+.pf-satir.secili{background:color-mix(in oklab,var(--aksan) 10%,var(--kat));border-color:var(--aksan);}
+.pf-satir.kapali{opacity:.4;}
+.pf-satir:not(.kapali){cursor:pointer;}
+.pf-kod{font-family:'IBM Plex Mono',monospace;font-weight:700;font-size:13px;color:var(--sol);}
+.pf-satir.secili .pf-kod{color:var(--fg);}
+.pf-ad{font-size:14.5px;font-weight:500;color:var(--fg);}
+.pf-alt{font-family:'IBM Plex Mono',monospace;font-size:10.5px;color:var(--sol);margin-top:3px;}
+.pf-sebep{font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--kirmizi);margin-top:3px;}
+.pf-fiyat{font-family:'IBM Plex Mono',monospace;font-weight:700;text-align:right;font-variant-numeric:tabular-nums;}
+.pf-fiyat.t1{font-size:19px;color:var(--fg);}
+.pf-fiyat.t2{font-size:17px;color:color-mix(in oklab,var(--fg) 82%,var(--sol));}
+.pf-fiyat.t3{font-size:15px;color:var(--sol);}
+.pf-fiyat.t4{font-size:14px;color:color-mix(in oklab,var(--sol) 80%,var(--cizgi));}
+.pf-b4{font-family:'IBM Plex Mono',monospace;font-size:9px;font-weight:700;color:var(--banko);border:1px solid color-mix(in oklab,var(--banko) 50%,transparent);border-radius:4px;padding:2px 5px;margin-left:7px;vertical-align:middle;letter-spacing:.06em;}
+
+.kp-kaydet{margin:0 0 18px;padding:16px 16px 14px;border:1px solid var(--cizgi);border-radius:var(--r-md);background:var(--kat);}
+.kp-kaydet b{display:block;font-family:Fraunces,Georgia,serif;font-size:20px;font-weight:560;letter-spacing:-.02em;margin:0 0 6px;}
+.kp-kaydet p{font-size:13px;color:var(--sol);line-height:1.5;margin:0 0 12px;}
+.kp-kaydet .sira{display:flex;flex-direction:column;gap:8px;}
+.kp-kaydet a.kp-dg,.kp-kaydet a.kp-dg2{display:block;text-align:center;text-decoration:none;box-sizing:border-box;}
+.kp-giris-gorsel{position:relative;margin:8px 0 22px;border-radius:var(--r-sm);overflow:hidden;border:1px solid var(--cizgi);background:var(--kat);}
+.kp-giris-gorsel img{display:block;width:100%;height:auto;filter:grayscale(.08) contrast(1.06) saturate(.92);}
+.kp-giris-gorsel:after{content:"";position:absolute;left:0;right:0;bottom:0;height:42%;background:linear-gradient(to bottom,transparent,var(--bg));pointer-events:none;}
+
+.kp-haftabas{padding:12px 8px;margin:0 -8px;border-radius:var(--r-sm);cursor:pointer;-webkit-tap-highlight-color:transparent;transition:background .14s var(--ease);}
+.kp-haftabas:active{background:color-mix(in oklab,var(--fg) 5%,transparent);}
+.kp-ac{width:30px;height:30px;flex-shrink:0;border-radius:50%;display:flex;align-items:center;justify-content:center;background:color-mix(in oklab,var(--aksan) 10%,transparent);border:1px solid var(--cizgi);color:var(--fg);font-size:15px;line-height:1;transition:transform .18s var(--ease),background .18s var(--ease);transform:rotate(-90deg);}
+.kp-ac.acik{transform:rotate(0deg);background:color-mix(in oklab,var(--aksan) 18%,transparent);}
+
+.kp-odul{position:relative;border-radius:var(--r-lg);overflow:hidden;margin-bottom:14px;border:1px solid var(--cizgi);min-height:190px;display:flex;align-items:flex-end;background:var(--kat);}
+.kp-odul-bg{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:center 62%;filter:grayscale(.15) contrast(1.08) saturate(.9);}
+.kp-odul:after{content:"";position:absolute;inset:0;background:linear-gradient(to top,rgba(44,36,28,.92) 0%,rgba(44,36,28,.78) 32%,rgba(44,36,28,.28) 62%,rgba(44,36,28,.08) 100%);}
+.kp-odul-ic{position:relative;z-index:2;padding:16px;width:100%;}
+.kp-odul-bas{font-family:'IBM Plex Mono',monospace;font-size:9.5px;letter-spacing:.16em;color:#E2C07A;font-weight:700;margin-bottom:4px;}
+.kp-odul-mal{font-family:Fraunces,Georgia,serif;font-style:italic;font-size:24px;font-weight:560;color:#F6F0E6;letter-spacing:-.02em;line-height:1.1;}
+.kp-odul-hedef{font-size:13px;font-weight:600;color:#D2C4B2;letter-spacing:0;}
+.kp-odul-yildiz{font-family:Fraunces,Georgia,serif;font-style:italic;font-size:16px;font-weight:560;color:#E2C07A;}
+.kp-odul-dip{font-size:10px;color:#D2C4B2;margin-top:3px;}
+.kp-odul-ad{font-family:Fraunces,Georgia,serif;font-size:16px;font-weight:560;color:#F6F0E6;}
+.kp-odul-alt{font-size:11.5px;color:#D2C4B2;margin-top:5px;line-height:1.5;}
+.kp-odul-cizgi{height:1px;background:color-mix(in oklab,var(--banko) 24%,transparent);margin:11px 0 10px;}
+
+.kp-govde{flex:1 0 auto;min-height:0;}
+.kp-alt{position:relative;margin-top:0;background:var(--bg);border-top:1px solid var(--cizgi);display:flex;flex-wrap:nowrap;align-items:stretch;gap:0;padding:4px 4px calc(8px + env(safe-area-inset-bottom));z-index:40;flex-shrink:0;width:100%;min-width:0;max-width:100%;overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch;overscroll-behavior-x:contain;touch-action:pan-x;scrollbar-width:none;-ms-overflow-style:none;}
+.kp-alt::-webkit-scrollbar{display:none;height:0;}
+.kp-alt button{background:none;border:none;color:var(--sol);padding:12px 10px;min-height:48px;min-width:3.5rem;flex:1 0 auto;border-radius:0;font-family:Figtree,sans-serif;font-size:10px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;white-space:nowrap;cursor:pointer;transition:color .14s var(--ease);box-shadow:inset 0 0 0 0 transparent;}
+.kp-alt button:active{transform:scale(.97);}
+.kp-alt button.on{color:var(--fg);background:transparent;box-shadow:inset 0 2px 0 var(--aksan);}
+
+.kz-kasa{border-color:color-mix(in oklab,var(--banko) 45%,var(--cizgi))!important;}
+.kz-tutar{display:block;font-family:'IBM Plex Mono',monospace;font-size:28px;font-weight:700;letter-spacing:-.04em;color:var(--banko);margin:4px 0 8px;font-variant-numeric:tabular-nums;}
+.mg-bakiye{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px;}
+.mg-bak{background:var(--kat);border:1px solid var(--cizgi);border-radius:var(--r-md);padding:14px 14px 12px;}
+.mg-bak b{display:block;font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:.14em;color:var(--banko);font-weight:700;margin-bottom:6px;}
+.mg-bak strong{display:block;font-family:'IBM Plex Mono',monospace;font-size:22px;font-weight:700;color:var(--fg);letter-spacing:-.03em;font-variant-numeric:tabular-nums;}
+.mg-bak em{display:block;font-style:normal;font-size:11.5px;color:var(--sol);margin-top:6px;line-height:1.4;}
+.mg-urun{display:grid;grid-template-columns:56px 1fr;gap:12px;align-items:center;padding:14px 4px;border-bottom:1px solid var(--cizgi);}
+.mg-urun:last-of-type{border-bottom:none;}
+.mg-gorsel{width:56px;height:56px;border-radius:var(--r-sm);border:1px solid var(--cizgi);background:var(--kat2);display:flex;align-items:center;justify-content:center;position:relative;}
+.mg-lej{position:relative;border-radius:var(--r-lg);overflow:hidden;margin-bottom:14px;border:1px solid var(--cizgi);background:var(--kat);display:flex;flex-direction:column;}
+.mg-lej-bg{display:block;width:100%;height:auto;aspect-ratio:2/3;object-fit:cover;object-position:center 12%;filter:none;}
+.mg-lej:after{display:none;}
+.mg-lej-ic{position:relative;z-index:2;padding:16px;width:100%;color:var(--fg);background:var(--kat);}
+.mg-lej-ic .mg-ad{color:var(--fg);}
+.mg-lej-ic .mg-alt{color:var(--sol);}
+.mg-lej-ic .mg-fiyat{color:var(--banko);font-size:22px;margin-top:6px;}
+.mg-lej-ic .mg-stok{color:var(--sol);}
+.mg-lej-ic .mg-stok.yok{color:var(--kirmizi);}
+.mg-lej-ic .kp-dg2{border-color:var(--cizgi);color:var(--fg);background:transparent;}
+.mg-lej-ic .mg-onay{background:var(--kat);border-color:color-mix(in oklab,var(--banko) 40%,var(--cizgi));}
+@media(min-width:900px){
+.mg-lej{flex-direction:row;align-items:stretch;min-height:520px;}
+.mg-lej-bg{width:min(44%,440px);flex:0 0 min(44%,440px);height:auto;min-height:520px;aspect-ratio:auto;object-fit:cover;object-position:center top;}
+.mg-lej-ic{flex:1;display:flex;flex-direction:column;justify-content:flex-end;padding:28px 32px 24px;}
+}
+.mg-tel{width:22px;height:38px;border:2px solid var(--aksan);border-radius:5px;position:relative;}
+.mg-tel:after{content:"";position:absolute;bottom:3px;left:50%;width:8px;height:2px;background:var(--aksan);transform:translateX(-50%);border-radius:1px;}
+.mg-kon7{width:46px;height:28px;color:var(--banko);display:block;}
+.mg-pc{width:34px;height:26px;border:2px solid var(--fg);border-radius:3px;position:relative;}
+.mg-pc:before{content:"";position:absolute;left:-8px;bottom:0;width:6px;height:20px;border:2px solid var(--fg);border-radius:2px;}
+.mg-pc:after{content:"";position:absolute;bottom:-5px;left:6px;width:18px;height:3px;background:var(--fg);border-radius:1px;}
+.mg-ad{font-size:15px;font-weight:600;color:var(--fg);letter-spacing:-.01em;}
+.mg-alt{font-size:12px;color:var(--sol);margin-top:3px;line-height:1.45;}
+.mg-fiyat{font-family:'IBM Plex Mono',monospace;font-size:16px;font-weight:700;color:var(--banko);margin-top:8px;font-variant-numeric:tabular-nums;}
+.mg-stok{font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:.1em;color:var(--sol);margin-top:4px;}
+.mg-stok.yok{color:var(--kirmizi);}
+.mg-yetmez,.mg-yetmez:disabled{opacity:1!important;color:var(--kirmizi)!important;border-color:var(--kirmizi)!important;background:color-mix(in oklab,var(--kirmizi) 12%,transparent)!important;font-weight:700;}
+.mg-tukendi,.mg-tukendi:disabled{opacity:1!important;color:var(--sol)!important;border-color:var(--cizgi)!important;}
+.mg-le{font-family:'IBM Plex Mono',monospace;font-size:13px;font-weight:700;letter-spacing:.12em;color:var(--banko);}
+.mg-rozet{display:inline-block;font-family:'IBM Plex Mono',monospace;font-size:9px;font-weight:700;letter-spacing:.08em;color:var(--banko);border:1px solid color-mix(in oklab,var(--banko) 50%,transparent);border-radius:4px;padding:1px 5px;margin-left:6px;vertical-align:middle;}
+.mg-onay{border-color:var(--banko)!important;}
+.kp :focus-visible{outline:2px solid var(--aksan);outline-offset:2px;}
+
+.kp-bilgi{background:var(--kat);border-bottom:1px solid var(--cizgi);padding:10px 16px;font-size:13px;display:flex;justify-content:space-between;gap:10px;color:var(--fg);flex-shrink:0;}
+.kp-bilgi button{background:none;border:none;color:var(--sol);cursor:pointer;font-size:17px;line-height:1;min-width:44px;min-height:44px;}
+
+.pr-root{padding-top:4px;}
+.pr-hero{padding:12px 12px 8px;margin-bottom:4px;background:#FAF1E0;border:1px solid #2C241C;box-shadow:3px 3px 0 #2C241C;}
+.pr-hero h1{font-size:clamp(1.45rem,5vw,1.9rem);margin:0;font-family:Fraunces,Georgia,serif;font-style:italic;font-weight:700;letter-spacing:-.03em;line-height:1.08;color:#2C241C;}
+.pr-hero .kp-gazete{margin:12px 0 4px;box-shadow:none;}
+.pr-catisma{display:flex;align-items:center;gap:12px;margin:0;color:var(--fg);padding-bottom:8px;border-bottom:3px double #2C241C;}
+.pr-catisma-svg{width:86px;height:48px;flex-shrink:0;color:#7D2F24;}
+.pr-muted{font-size:13.5px;line-height:1.65;color:var(--sol);margin:8px 0;overflow-wrap:anywhere;}
+.pr-tabs{display:flex;flex-wrap:nowrap;gap:0;overflow-x:auto;overflow-y:hidden;padding:4px 12px 0 0;border-bottom:1px solid var(--cizgi);margin:12px 0;width:100%;min-width:0;max-width:100%;-webkit-overflow-scrolling:touch;overscroll-behavior-x:contain;touch-action:pan-x;scrollbar-width:none;-ms-overflow-style:none;scroll-snap-type:x proximity;}
+.pr-tabs::-webkit-scrollbar{display:none;height:0;}
+.pr-tabs button{white-space:nowrap;flex:0 0 auto;scroll-snap-align:start;min-height:44px;background:transparent;color:var(--sol);border:none;border-bottom:2px solid transparent;border-radius:0;padding:9px 12px;font:600 12.5px Figtree,system-ui;cursor:pointer;margin-bottom:-1px;}
+.pr-tabs button.on{background:transparent;border-bottom-color:#7D2F24;color:var(--fg);}
+.pr-label{display:block;font-size:13px;margin:8px 0 16px;color:var(--sol);}
+.pr-label select,.pr-label input{display:block;margin-top:8px;}
+.pr-winner{background:#FAF1E0;border:1px solid #2C241C;border-left:4px solid #7D2F24;border-radius:0;padding:22px 18px;margin-bottom:14px;}
+.pr-winner h2{font-size:26px;line-height:1.2;margin:6px 0;overflow-wrap:anywhere;font-family:Fraunces,Georgia,serif;font-style:italic;font-weight:700;}
+.pr-versus{display:grid;grid-template-columns:1fr auto 1fr;gap:12px;align-items:center;text-align:center;padding:30px 10px;background:#FAF1E0;border:1px solid #2C241C;border-radius:0;box-shadow:3px 3px 0 #2C241C;}
+.pr-big{font-size:36px;color:var(--fg);font-family:'IBM Plex Mono',monospace;font-variant-numeric:tabular-nums;}
+.pr-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin:12px 0;}
+.pr-metric{padding:17px 14px;background:var(--kat);border:1px solid var(--cizgi);border-radius:var(--r-md);}
+.pr-metric span,.pr-metric small{display:block;color:var(--sol);font-size:12px;line-height:1.5;}
+.pr-metric strong{display:block;font:700 28px 'IBM Plex Mono',ui-monospace;color:var(--fg);margin:6px 0;font-variant-numeric:tabular-nums;}
+.pr-row{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid var(--cizgi);font-size:13px;line-height:1.5;}
+.pr-row span{overflow-wrap:anywhere;}
+.pr-row strong{flex-shrink:0;font-variant-numeric:tabular-nums;}
+.pr-green{color:var(--yesil);}
+.pr-versus strong{font-size:32px;color:var(--fg);font-family:'IBM Plex Mono',monospace;font-variant-numeric:tabular-nums;}
+.pr-versus span{font-size:15px;overflow-wrap:anywhere;}
+.pr-form{display:flex;gap:8px;}
+.pr-form>div{flex:1;background:var(--kat2);border-radius:var(--r-sm);text-align:center;padding:14px 0;}
+.pr-form strong{display:block;font-size:23px;color:var(--fg);font-family:'IBM Plex Mono',monospace;}
+.pr-form span{font-size:10px;color:var(--sol);}
+.pr-log{border-top:1px solid var(--cizgi);padding:16px 0;font-size:13px;line-height:1.6;}
+.pr-toggle{display:flex;align-items:center;gap:10px;font-size:14px;line-height:1.6;}
+.pr-toggle input{width:24px;height:24px;accent-color:var(--aksan);flex-shrink:0;}
+.pr-actions{display:flex;gap:8px;margin-top:12px;}
+.pr-actions button{flex:1;}
+.pr-card-preview{width:100%;height:auto;border-radius:var(--r-sm);display:block;}
+.pr-root h2{font-size:21px;font-family:Fraunces,Georgia,serif;font-weight:560;}
+.pr-root h3{font-size:17px;line-height:1.5;}
+.kp button:disabled{opacity:.45;cursor:not-allowed;}
+.kp-kat{overflow-wrap:anywhere;}
+.kp-yukle{padding-top:80px;color:var(--sol);font-family:Fraunces,Georgia,serif;font-style:italic;font-size:20px;}
+
+@media(min-width:420px){
+.ay-grid{grid-template-columns:repeat(3,minmax(0,1fr));}
+}
+@media(max-width:480px){
+.kp-msatir{grid-template-columns:32px minmax(32px,1fr) auto minmax(32px,1fr);gap:4px;}
+.kp-msatir>div:last-child{display:none;}
+.kp-sayac{display:grid!important;grid-template-columns:32px 32px 8px 32px 32px;gap:2px!important;}
+.kp-sayac:has(button){grid-template-columns:32px 8px 32px;}
+.kp-sayac:has(button)>:nth-child(1){grid-area:3/1;}
+.kp-sayac:has(button)>:nth-child(2){grid-area:2/1;}
+.kp-sayac:has(button)>:nth-child(3){grid-area:1/1;}
+.kp-sayac:has(button)>:nth-child(4){grid-area:2/2;}
+.kp-sayac:has(button)>:nth-child(5){grid-area:3/3;}
+.kp-sayac:has(button)>:nth-child(6){grid-area:2/3;}
+.kp-sayac:has(button)>:nth-child(7){grid-area:1/3;}
+.kp-sayac:not(:has(button)){grid-template-columns:24px 8px 24px;}
+}
+@media (prefers-reduced-motion:reduce){
+.kp *{transition:none!important;animation:none!important;}
+}
+@media (min-width:900px){
+.kp-ic{max-width:980px;padding:22px 28px 40px;}
+.kp-ust{padding:16px 28px;}
+.kp-gazete-govde{grid-template-columns:1.15fr .85fr;gap:8px 28px;}
+.kp-gazete-name{font-size:2.7rem;}
+.ol-kart{grid-template-columns:repeat(3,minmax(0,1fr));}
+.ay-grid{grid-template-columns:repeat(4,minmax(0,1fr));}
+.pr-grid{grid-template-columns:repeat(4,minmax(0,1fr));}
+.tr-grid{grid-template-columns:repeat(3,minmax(0,1fr));}
+.pr-hero h1{font-size:2.15rem;}
+}
+@media (min-width:1100px){
+.kp{flex-direction:row;}
+.kp-masa-col{flex:1 1 auto;}
+.kp-alt{order:-1;width:212px;flex:0 0 212px;flex-direction:column;justify-content:flex-start;align-items:stretch;border-top:none;border-right:1px solid var(--cizgi);padding:26px 12px 18px;overflow-x:hidden;overflow-y:auto;height:100%;max-height:100dvh;background:color-mix(in oklab,var(--kat) 70%,var(--bg));gap:3px;}
+.kp-alt:before{content:"Kupon";display:block;font-family:Fraunces,Georgia,serif;font-style:italic;font-weight:560;font-size:28px;letter-spacing:-.03em;padding:2px 12px 18px;color:var(--fg);}
+.kp-alt button{flex:0 0 auto;width:100%;min-width:0;text-align:left;font-size:12px;letter-spacing:.1em;padding:12px 14px;border-radius:10px;box-shadow:none;}
+.kp-alt button.on{background:color-mix(in oklab,var(--aksan) 12%,var(--kat));box-shadow:inset 3px 0 0 var(--aksan);}
+.kp-ust{padding:18px 40px;}
+.kp-ic{max-width:none;margin:0;padding:28px 40px 56px;}
+.kp-masa{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;}
+.kp-masa>.kp-kat{margin-bottom:0;}
+.kp-gazete{box-shadow:8px 8px 0 #2C241C;}
+.kp-gazete-name{font-size:3.35rem;padding:22px 28px 4px;letter-spacing:.2em;}
+.kp-gazete-ust{padding:8px 28px;}
+.kp-gazete-bas{font-size:2.25rem;padding:20px 28px 14px;}
+.kp-gazete-govde{padding:8px 28px 24px;}
+.pr-hero{padding:20px 22px 12px;}
+.pr-hero h1{font-size:2.4rem;}
+.rl-hero h1{font-size:3.1rem;}
+.kp-odul{min-height:260px;}
+.kp-kupon-masa{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(280px,.75fr);gap:16px 24px;align-items:start;}
+.kp-kupon-masa>.kp-kagit{margin-bottom:0;}
+.kp-surum{display:none;}
+.mg-bakiye{max-width:560px;}
+.pr-tabs button{font-size:13.5px;padding:10px 16px;}
+}
+
+`;
+    if (yukleniyor)
+        return React.createElement("div", { className: "kp" },
+            React.createElement("style", null, stil),
+            React.createElement("div", { className: "kp-ic kp-yukle" }, "Yükleniyor…"));
+    const Bilgi = () => bilgi ? (React.createElement("div", { className: "kp-bilgi" },
+        React.createElement("span", null, bilgi),
+        React.createElement("button", { onClick: () => setBilgi(""), "aria-label": "Kapat" }, "×"))) : null;
+    /* ---------- GİRİŞ ---------- */
+    if (ekran === "giris") {
+        return (React.createElement("div", { className: "kp" },
+            React.createElement("style", null, stil),
+            React.createElement("div", { className: "kp-ic", style: { paddingTop: 28 } },
+                React.createElement("header", { className: "kp-masthead" },
+                    React.createElement("div", { className: "kp-mast-meta" }, new Date().toLocaleDateString("tr-TR", { weekday: "long", day: "numeric", month: "long", year: "numeric", timeZone: "Europe/Istanbul" }), "  ·  Süper Lig 2026–27"),
+                    React.createElement("h1", { className: "kp-mark" }, "Kupon"),
+                    React.createElement("p", { className: "kp-mast-sub" }, "Haftalık tahmin  ·  sezonluk portföy")),
+                React.createElement(Bilgi, null),
+                !MISAFIR && React.createElement("div", { className: "kp-kaydet" },
+                    React.createElement("b", null, "GitHub’da yayında"),
+                    React.createElement("p", null, "Güncel Kupon, RULET dahil, senin Pages adresinde. İndirme tuşuna gerek yok."),
+                    React.createElement("div", { className: "sira" },
+                        React.createElement("a", {
+                            className: "kp-dg",
+                            href: "https://metoapps.github.io/Kupon/",
+                            target: "_blank",
+                            rel: "noopener noreferrer",
+                        }, "Sayfayı aç"),
+                        React.createElement("a", {
+                            className: "kp-dg2",
+                            href: "/kupon-github.zip",
+                            download: "kupon-github.zip",
+                            style: { width: "100%" },
+                        }, "Zip yedek indir"))),
+                React.createElement("div", { className: "kp-giris-gorsel" },
+                    React.createElement("img", { src: GIRIS_GORSEL, alt: "Stat ışığında kupon kâğıdı ve altın külçe" })),
+                React.createElement("p", { className: "pr-muted", style: { marginTop: 0 } },
+                    MISAFIR
+                        ? "PIN yok, yazma yok. Kim kupon yatırdı ve klasman görünür; tahminler maç bitene kadar gizli."
+                        : ("Her hafta dokuz maça skor yaz, birini banko seç. Tam skor 5, fark 3, sonuç 2 — banko katlar. Sezon başında " + KREDI + " krediyle dört takım al; lig puanları da senin olur.")),
+                React.createElement("div", { style: { marginTop: 26 } },
+                    React.createElement("div", { className: "kp-et" }, "Grup kodu"),
+                    React.createElement("input", { className: "kp-gir kp-mono", value: lig, onChange: e => setLig(e.target.value.toLowerCase().replace(/[^a-z0-9]/g, "")), placeholder: "besikodu", maxLength: 20 }),
+                    React.createElement("div", { style: { fontSize: 11.5, color: "var(--sol)", marginTop: 7 } }, "Ayn\u0131 kodu girenler ayn\u0131 ligde. Gruba bu kodu at.")),
+                !MISAFIR && React.createElement("div", { style: { marginTop: 18 } },
+                    React.createElement("div", { className: "kp-et" }, "Ad\u0131n"),
+                    React.createElement("input", { className: "kp-gir", value: isim, onChange: e => setIsim(e.target.value), placeholder: "Meto", maxLength: 16 }),
+                    React.createElement("div", { style: { display: "flex", gap: 6, marginTop: 8, flexWrap: "wrap" } }, TAKMA_ADLAR.map(n => (React.createElement("button", { key: n, className: "kp-dg2", style: { padding: "6px 12px 6px 6px", fontSize: 12.5, display: "flex", alignItems: "center", gap: 8, borderColor: isim === n ? "var(--aksan)" : "var(--cizgi)", color: isim === n ? "var(--aksan)" : "var(--fg)" }, onClick: () => setIsim(n) },
+                        React.createElement(Yuz, { isim: n, boy: 34, vurgu: isim === n }),
+                        n))))),
+                React.createElement("div", { style: { marginTop: 24 } },
+                    MISAFIR
+                        ? React.createElement("button", { className: "kp-dg", disabled: !lig.trim() || mesgul, onClick: () => misafirAc(lig).catch(e => setBilgi(e.message || "Grup bulunamadı.")) }, mesgul ? "…" : "İzle")
+                        : React.createElement("button", { className: "kp-dg", disabled: !lig.trim() || !isim.trim() || mesgul, onClick: () => girisDene(lig, isim, false) }, mesgul ? "…" : "Devam")),
+                React.createElement("p", { style: { fontSize: 11, color: "var(--sol)", marginTop: 20, lineHeight: 1.6 } }, MISAFIR ? "Bu bağlantı salt okunur. Tahmin yazamaz, PIN sorulmaz, kasa işlemi yapamazsın." : "Ad\u0131n\u0131 se\u00E7tikten sonra sana \u00F6zel 4 haneli bir PIN belirleyeceksin. Ayn\u0131 telefondan bir daha sorulmaz."))));
+    }
+    /* ---------- PIN ---------- */
+    if (ekran === "pin" && pinEkrani) {
+        const { isim: pIsim, yeni } = pinEkrani;
+        return (React.createElement("div", { className: "kp" },
+            React.createElement("style", null, stil),
+            React.createElement("div", { className: "kp-ic", style: { paddingTop: 40 } },
+                React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 14, marginBottom: 22 } },
+                    React.createElement(Yuz, { isim: pIsim, boy: 72, vurgu: true }),
+                    React.createElement("div", null,
+                        React.createElement("div", { className: "kp-h", style: { fontSize: 24 } }, pIsim),
+                        React.createElement("div", { className: "kp-mono", style: { fontSize: 11, color: "var(--sol)", marginTop: 4 } }, pinEkrani.lig.toUpperCase()))),
+                React.createElement("div", { className: "kp-kat" },
+                    React.createElement("div", { className: "kp-et" }, yeni ? "PIN belirle" : "PIN gir"),
+                    React.createElement("div", { style: { fontSize: 13.5, color: "var(--sol)", lineHeight: 1.65, marginBottom: 16 } }, yeni
+                        ? "Bu isim ilk kez kullanılıyor. 4 rakamlı bir PIN belirle — bundan sonra bu isimle sadece PIN'i bilen girebilir."
+                        : "Bu isim daha önce kullanılmış. Devam etmek için PIN'ini gir."),
+                    React.createElement("input", { className: "kp-gir kp-mono", inputMode: "numeric", type: "password", autoComplete: "off", style: { textAlign: "center", fontSize: 26, letterSpacing: ".5em", padding: "14px 0" }, value: pin, placeholder: "\u2022\u2022\u2022\u2022", maxLength: 4, onChange: e => { setPin(e.target.value.replace(/\D/g, "").slice(0, 4)); setPinHata(""); } }),
+                    yeni && (React.createElement("input", { className: "kp-gir kp-mono", inputMode: "numeric", type: "password", autoComplete: "off", style: { textAlign: "center", fontSize: 26, letterSpacing: ".5em", padding: "14px 0", marginTop: 10 }, value: pin2, placeholder: "tekrar", maxLength: 4, onChange: e => { setPin2(e.target.value.replace(/\D/g, "").slice(0, 4)); setPinHata(""); } })),
+                    pinHata && React.createElement("div", { style: { color: "var(--kirmizi)", fontSize: 13, marginTop: 12, fontWeight: 600 } }, pinHata),
+                    React.createElement("button", { className: "kp-dg", style: { marginTop: 16 }, disabled: mesgul || pin.length !== 4 || (yeni && pin2.length !== 4), onClick: pinOnayla }, mesgul ? "…" : yeni ? "PIN'i kaydet ve gir" : "Gir"),
+                    React.createElement("button", { className: "kp-dg2", style: { width: "100%", marginTop: 8 }, onClick: () => { setPinEkrani(null); setPin(""); setPin2(""); setPinHata(""); setEkran("giris"); } }, "Geri")),
+                React.createElement("div", { style: { fontSize: 11.5, color: "var(--sol)", lineHeight: 1.65, padding: "0 4px" } }, "PIN unutulursa grubu kuran ki\u015Fi kayd\u0131 silip yeniden belirletir."))));
+    }
+    /* ---------- TAKIM LİSTESİ (ilk kurulum) ---------- */
+    if (ekran === "takimlar") {
+        return (React.createElement("div", { className: "kp" },
+            React.createElement("style", null, stil),
+            React.createElement("div", { className: "kp-ust" },
+                React.createElement("div", { className: "kp-h", style: { fontSize: 19 } }, "Lig kadrosu"),
+                React.createElement("div", { className: "kp-mono", style: { fontSize: 11, color: "var(--sol)" } },
+                    takimDuzen.length,
+                    " tak\u0131m")),
+            React.createElement(Bilgi, null),
+            React.createElement("div", { className: "kp-ic" },
+                React.createElement("p", { style: { color: "var(--sol)", fontSize: 13.5, lineHeight: 1.6, marginTop: 0 } }, "Liste 2026-27 S\u00FCper Lig'i. Sa\u011Fdaki say\u0131 tak\u0131m\u0131n ge\u00E7en sezon toplad\u0131\u011F\u0131 ger\u00E7ek puan \u2014 portf\u00F6y fiyat\u0131 buradan hesaplan\u0131yor. Erzurumspor, Amedspor ve \u00C7orum yeni \u00E7\u0131kt\u0131\u011F\u0131 i\u00E7in onlar\u0131nki tahmin (35/34/33)."),
+                takimDuzen.map((t, i) => (React.createElement("div", { key: i, style: { display: "grid", gridTemplateColumns: "1fr 62px 54px", gap: 6, marginBottom: 6 } },
+                    React.createElement("input", { className: "kp-gir", style: { padding: 9, fontSize: 13.5 }, value: t.ad, onChange: e => { const y = [...takimDuzen]; y[i] = { ...t, ad: e.target.value }; setTakimDuzen(y); } }),
+                    React.createElement("input", { className: "kp-gir kp-mono", style: { padding: 9, fontSize: 13, textAlign: "center" }, value: t.kod, maxLength: 4, onChange: e => { const y = [...takimDuzen]; y[i] = { ...t, kod: e.target.value.toUpperCase() }; setTakimDuzen(y); } }),
+                    React.createElement("input", { className: "kp-gir kp-mono", style: { padding: 9, fontSize: 13, textAlign: "center" }, value: t.gp, onChange: e => { const y = [...takimDuzen]; y[i] = { ...t, gp: Math.max(0, Math.min(102, +e.target.value || 0)) }; setTakimDuzen(y); } })))),
+                React.createElement("button", { className: "kp-dg2", style: { width: "100%", marginTop: 8 }, onClick: () => setTakimDuzen([...takimDuzen, { ad: "", kod: "", gp: 35 }]) }, "Tak\u0131m ekle"),
+                React.createElement("div", { style: { marginTop: 16 } },
+                    React.createElement("div", { className: "kp-et" }, "Gruptaki oyuncu sayısı"),
+                    React.createElement("input", { className: "kp-gir kp-mono", inputMode: "numeric", type: "number", min: 2, max: 18, value: beklenenGiris, onChange: e => setBeklenenGiris(e.target.value.replace(/\D/g, "").slice(0, 2)), style: { marginBottom: 8 } }),
+                    React.createElement("div", { style: { fontSize: 12, color: "var(--sol)", lineHeight: 1.55, marginBottom: 14 } }, "Portföyler bu sayıya ulaşıp herkes kilitleyince açılır. Sonra ayarlardan değiştirebilirsin."),
+                    React.createElement("button", { className: "kp-dg", onClick: () => guvenliIslem(kurulumBitir) }, "Ligi kur")))));
+    }
+    /* ---------- PORTFÖY KURULUMU ---------- */
+    if (ekran === "portfoyKur") {
+        const harcanan = portfoySecim.reduce((s, i) => s + fiyat(takimlar[i]), 0);
+        const buyukSecili = portfoySecim.find(x => { var _a; return BUYUK4.includes((_a = takimlar[x]) === null || _a === void 0 ? void 0 : _a.kod); });
+        // Bu takımı alırsam portföyü 4'e tamamlamak hâlâ mümkün mü?
+        const uygunMu = (i) => {
+            const f = fiyat(takimlar[i]);
+            const kalanButce = KREDI - harcanan - f;
+            if (kalanButce < 0)
+                return false;
+            const kalanSlot = PORTFOY_ADET - portfoySecim.length - 1;
+            if (kalanSlot === 0)
+                return true;
+            const buyukVar = buyukSecili !== undefined || BUYUK4.includes(takimlar[i].kod);
+            const enUcuz = takimlar
+                .map((t, j) => ({ j, f: fiyat(t), b: BUYUK4.includes(t.kod) }))
+                .filter(x => x.j !== i && !portfoySecim.includes(x.j) && !(buyukVar && x.b))
+                .sort((a, b) => a.f - b.f)
+                .slice(0, kalanSlot);
+            if (enUcuz.length < kalanSlot)
+                return false;
+            return enUcuz.reduce((s, x) => s + x.f, 0) <= kalanButce;
+        };
+        const cikmaz = portfoySecim.length > 0 && portfoySecim.length < PORTFOY_ADET &&
+            !takimlar.some((_, i) => !portfoySecim.includes(i) && uygunMu(i) &&
+                !(BUYUK4.includes(takimlar[i].kod) && buyukSecili !== undefined));
+        /* Fiyat kuşakları: piyasayı bir bakışta okunur kılar */
+        const KUSAKLAR = [
+            { ad: "Elit", alt: 31, ust: 99, t: "t1" },
+            { ad: "\u00dcst s\u0131n\u0131f", alt: 20, ust: 30, t: "t2" },
+            { ad: "Orta", alt: 13, ust: 19, t: "t3" },
+            { ad: "Ucuz", alt: 0, ust: 12, t: "t4" },
+        ];
+        const kusakOf = (f) => KUSAKLAR.find(k => f >= k.alt && f <= k.ust) || KUSAKLAR[3];
+        /* Bir takım neden alınamıyor? Sessizce soluklaştırmak yerine sebebini söyle. */
+        const kapaliSebep = (i) => {
+            const t = takimlar[i];
+            if (portfoySecim.length >= PORTFOY_ADET) return "portf\u00f6y dolu";
+            if (BUYUK4.includes(t.kod) && buyukSecili !== undefined && buyukSecili !== i) return "b\u00fcy\u00fck 4 dolu";
+            if (!uygunMu(i)) return "b\u00fct\u00e7e yetmez";
+            return "";
+        };
+        const oran = Math.min(100, Math.round(harcanan / KREDI * 100));
+        const kalan = KREDI - harcanan;
+        const durum = kalan < 0 ? "tas" : (kalan <= 10 && portfoySecim.length < PORTFOY_ADET) ? "dar" : "";
+        const sec = (i) => {
+            if (portfoySecim.includes(i)) setPortfoySecim(portfoySecim.filter(x => x !== i));
+            else if (!kapaliSebep(i)) setPortfoySecim([...portfoySecim, i]);
+        };
+        return (React.createElement("div", { className: "kp" },
+            React.createElement("style", null, stil),
+            React.createElement("div", { className: "pf-ust" },
+                React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 9 } },
+                    React.createElement("div", { className: "kp-h", style: { fontSize: 17 } }, "Portf\u00F6y\u00FCn\u00FC kur"),
+                    React.createElement("div", { className: "kp-mono", style: { fontSize: 11, color: "var(--sol)" } }, portfoySecim.length + "/" + PORTFOY_ADET + " tak\u0131m")),
+                React.createElement("div", { className: "pf-slotlar" },
+                    Array.from({ length: PORTFOY_ADET }).map((_, n) => {
+                        const idx = portfoySecim[n];
+                        const t = idx === undefined ? null : takimlar[idx];
+                        return React.createElement("div", { key: n, className: "pf-slot" + (t ? " dolu" : ""),
+                            onClick: () => t && sec(idx), title: t ? t.ad : "" },
+                            t ? React.createElement(React.Fragment, null,
+                                React.createElement("span", { className: "pf-slot-kod" }, t.kod),
+                                React.createElement("span", { className: "pf-slot-f" }, fiyat(t)))
+                              : React.createElement("span", { className: "pf-slot-bos" }, "+"));
+                    })),
+                React.createElement("div", { className: "pf-butce" },
+                    React.createElement("div", { className: "pf-cubuk " + durum },
+                        React.createElement("i", { style: { width: oran + "%" } })),
+                    React.createElement("div", { className: "pf-kalan " + durum }, kalan,
+                        React.createElement("span", null, "KRED\u0130")))),
+            React.createElement(Bilgi, null),
+            React.createElement("div", { className: "kp-ic" },
+                React.createElement("details", { style: { background: "var(--kat)", border: "1px solid var(--cizgi)", borderRadius: 12, padding: "11px 14px", marginBottom: 4 } },
+                    React.createElement("summary", { style: { cursor: "pointer", fontSize: 13, color: "var(--fg)", fontWeight: 600 } },
+                        KREDI + " kredi, " + PORTFOY_ADET + " tak\u0131m \u2014 kurallar"),
+                    React.createElement("div", { style: { fontSize: 13, lineHeight: 1.7, color: "var(--sol)", marginTop: 10 } },
+                        "B\u00fcy\u00fck 4'ten ",
+                        React.createElement("strong", { style: { color: "var(--banko)" } }, "en fazla birini"),
+                        " alabilirsin. Bir tak\u0131m\u0131 grupta yaln\u0131z sen ald\u0131ysan puan\u0131 ",
+                        React.createElement("strong", { style: { color: "var(--yesil)" } }, "\u00D7" + TEK_SAHIP_CARPAN),
+                        " say\u0131l\u0131r. Sezon ba\u015F\u0131nda bir kere se\u00E7iliyor, sonra de\u011Fi\u015Fmiyor.",
+                        React.createElement("div", { style: { marginTop: 10, paddingTop: 10, borderTop: "1px solid var(--cizgi)", fontSize: 12.5 } },
+                            "Fiyatlar ge\u00E7en sezonun ger\u00E7ek puanlar\u0131ndan t\u00FCretildi. B\u00FCt\u00E7eyi tam harcayan her portf\u00F6y\u00FCn beklentisi e\u015Fit \u2014 kazanmak i\u00E7in bir tak\u0131m\u0131n ge\u00E7en seneki puan\u0131n\u0131 a\u015Faca\u011F\u0131na ya da alt\u0131nda kalaca\u011F\u0131na do\u011Fru bahse girmen gerekiyor."),
+                        React.createElement("div", { style: { marginTop: 8, color: "var(--banko)", fontSize: 12.5 } }, "Se\u00E7im k\u00F6r: kimse kimsenin portf\u00F6y\u00FCn\u00FC g\u00F6rm\u00FCyor, hepsi herkes kilitleyince a\u00E7\u0131l\u0131yor."))),
+                cikmaz && (React.createElement("div", { className: "kp-kat", style: { borderColor: "var(--kirmizi)", background: "rgba(240,86,74,.08)", marginTop: 12 } },
+                    React.createElement("div", { className: "kp-et", style: { color: "var(--kirmizi)", marginBottom: 8 } }, "B\u00FCt\u00E7e t\u0131kand\u0131"),
+                    React.createElement("div", { style: { fontSize: 13, lineHeight: 1.65, marginBottom: 12, color: "var(--sol)" } },
+                        "Kalan " + kalan + " krediyle portf\u00F6y\u00FC " + PORTFOY_ADET + " tak\u0131ma tamamlayamazs\u0131n. Se\u00E7ti\u011Fin pahal\u0131 tak\u0131mlardan birini \u00E7\u0131kar."),
+                    React.createElement("button", { className: "kp-dg2", style: { width: "100%" }, onClick: () => setPortfoySecim([]) }, "Ba\u015Ftan ba\u015Fla"))),
+                KUSAKLAR.map(ku => {
+                    const grup = takimlar.map((t, i) => ({ t, i })).filter(x => kusakOf(fiyat(x.t)).ad === ku.ad)
+                        .sort((a, b) => fiyat(b.t) - fiyat(a.t));
+                    if (!grup.length) return null;
+                    return React.createElement(React.Fragment, { key: ku.ad },
+                        React.createElement("div", { className: "pf-kusak" },
+                            React.createElement("b", null, ku.ad),
+                            React.createElement("i", null),
+                            React.createElement("em", null, (ku.ust > 90 ? fiyat(grup[grup.length - 1].t) + "\u2013" + fiyat(grup[0].t) : ku.alt + "\u2013" + ku.ust) + " kredi")),
+                        grup.map(({ t, i }) => {
+                            const secili = portfoySecim.includes(i);
+                            const sebep = secili ? "" : kapaliSebep(i);
+                            const f = fiyat(t);
+                            return React.createElement("div", { key: i, onClick: () => sec(i), role: "button", tabIndex: 0,
+                                onKeyDown: e => e.key === "Enter" && sec(i),
+                                className: "pf-satir" + (secili ? " secili" : "") + (sebep ? " kapali" : "") },
+                                React.createElement("div", { className: "pf-kod" }, t.kod),
+                                React.createElement("div", null,
+                                    React.createElement("div", { className: "pf-ad" }, t.ad,
+                                        BUYUK4.includes(t.kod) && React.createElement("span", { className: "pf-b4" }, "B\u00DCY\u00DCK 4")),
+                                    sebep ? React.createElement("div", { className: "pf-sebep" }, sebep)
+                                          : React.createElement("div", { className: "pf-alt" }, t.yeni ? "yeni \u00e7\u0131kt\u0131 \u00b7 tahmin " + t.gp : "ge\u00e7en sezon " + t.gp + " puan")),
+                                React.createElement("div", { className: "pf-fiyat " + kusakOf(f).t }, f));
+                        }));
+                }),
+                React.createElement("div", { style: { marginTop: 18 } },
+                    React.createElement("button", { className: "kp-dg", disabled: portfoySecim.length !== PORTFOY_ADET || harcanan > KREDI, onClick: () => guvenliIslem(portfoyKaydet) }, portfoySecim.length === PORTFOY_ADET ? "Portf\u00f6y\u00fc kilitle" : (PORTFOY_ADET - portfoySecim.length) + " tak\u0131m daha se\u00e7"),
+                    portfoySecim.length > 0 && (React.createElement("button", { className: "kp-dg2", style: { width: "100%", marginTop: 8 }, onClick: () => setPortfoySecim([]) }, "Se\u00E7imi temizle"))))));
+    }
+    /* ---------- OYUN ---------- */
+    if (!ben) {
+        return React.createElement("div", { className: "kp" },
+            React.createElement("style", null, stil),
+            React.createElement("div", { className: "kp-ic", style: { paddingTop: 40 } }, "Yükleniyor…"));
+    }
+    const oyuncular = (kurulum === null || kurulum === void 0 ? void 0 : kurulum.oyuncular) || [];
+    const veren = Object.keys(kuponlar).length;
+    const oyuncuAd = (sl) => ((oyuncular.find(o => o.slug === sl) || {}).isim) || sl;
+    function magazaGorunumu() {
+        const nakit = nakitHesap(ben.slug);
+        const servet = servetHesap(ben.slug);
+        const weeks = (tablo && tablo.haftalar) || [];
+        const hZ = weeks[weeks.length - 1];
+        const sonuncular = hZ ? haftaOdul(hZ).filter(x => x.unvan === "dallama") : [];
+        const benSonuncu = sonuncular.some(x => x.slug === ben.slug);
+        const zekatVerildi = !!(hZ && (magaza.zekat || []).some(z => z.veren === ben.slug && +z.hafta === +hZ.no));
+        const siraliServet = oyuncular.map(o => ({
+            slug: o.slug, isim: o.isim,
+            nakit: nakitHesap(o.slug), servet: servetHesap(o.slug), mallar: sahipMallar(o.slug),
+        })).sort((a, b) => b.servet - a.servet || b.nakit - a.nakit);
+        const zekatGecmis = (magaza.zekat || []).slice().sort((a, b) => b.zaman - a.zaman).slice(0, 12);
+        const vitrin = MAGAZA_URUNLER.map(u => {
+            const stok = kalanStok(u.id);
+            const yetmez = nakit < u.fiyat;
+            const kapali = MISAFIR || stok <= 0 || yetmez || mesgul;
+            const onay = satinOnay === u.id
+                ? H("div", { className: "kp-kat mg-onay", style: { margin: "10px 0 0", padding: "12px" } },
+                    H("div", { style: { fontSize: 13.5, lineHeight: 1.55, marginBottom: 10 } },
+                        u.ad + " için " + paraYaz(u.fiyat) + " nakit düşer. Servetin aynı kalır."),
+                    H("button", { className: "kp-dg", disabled: mesgul, onClick: () => guvenliIslem(() => satinAl(u.id)) }, mesgul ? "…" : "Evet, al"),
+                    H("button", { className: "kp-dg2", style: { width: "100%", marginTop: 8 }, onClick: () => setSatinOnay(null) }, "Vazgeç"))
+                : H("button", {
+                    className: "kp-dg2" + (stok <= 0 ? " mg-tukendi" : yetmez ? " mg-yetmez" : ""),
+                    style: { width: "100%", marginTop: 10 }, disabled: kapali, onClick: () => setSatinOnay(u.id),
+                }, stok <= 0 ? "Tükendi" : yetmez ? "Yetersiz bakiye" : "Satın al");
+            return H("div", { key: u.id, className: "mg-lej" },
+                H("img", { className: "mg-lej-bg", src: LEJYONER_GORSEL, alt: "" }),
+                H("div", { className: "mg-lej-ic" },
+                    H("div", { className: "kp-odul-bas" }, "SEZONLUK ÖDÜL"),
+                    H("div", { className: "mg-ad", style: { fontFamily: "Fraunces,Georgia,serif", fontStyle: "italic", fontSize: 26, fontWeight: 560 } }, u.ad),
+                    H("div", { className: "mg-alt" }, u.alt),
+                    H("div", { className: "mg-fiyat" }, paraYaz(u.fiyat)),
+                    H("div", { className: "mg-stok" + (stok ? "" : " yok") }, stok ? (stok + " adet kaldı") : "tükendi"),
+                    onay));
+        });
+        let zekatForm = H("p", { className: "pr-muted" }, "İlk hafta kapanınca zekât açılır.");
+        if (weeks.length) {
+            const kisiList = sonuncular.length
+                ? H("div", { style: { display: "flex", flexDirection: "column", gap: 8, margin: "4px 0 14px" } },
+                    sonuncular.map(x => H("div", { key: x.slug, style: { display: "flex", alignItems: "center", gap: 10 } },
+                        H(Yuz, { isim: x.isim, boy: 40, vurgu: false }),
+                        H("div", null,
+                            H("div", { style: { fontSize: 15, fontWeight: 600 } }, x.isim),
+                            H("span", { className: "kp-unvan kotu" }, "BİDON D'OR")))))
+                : H("p", { className: "pr-muted" }, "Bu haftada sonuncu yok.");
+            let eylem = null;
+            if (benSonuncu) {
+                eylem = H("p", { style: { fontSize: 13.5, color: "var(--banko)", lineHeight: 1.55 } }, "Bu hafta sonuncusun. Zekât alırsın, gönderemezsin.");
+            } else if (zekatVerildi) {
+                eylem = H("p", { className: "pr-muted" }, "Bu hafta için zekâtını verdin.");
+            } else if (sonuncular.length) {
+                eylem = H(React.Fragment, null,
+                    H("div", { style: { display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 } },
+                        [25, 50, 100, 250].map(n => H("button", {
+                            key: n, className: "kp-dg2", type: "button",
+                            style: { width: "auto", padding: "10px 14px", margin: 0 },
+                            onClick: () => { setZekatMiktar(String(n)); setZekatOnay(false); },
+                        }, n + " €"))),
+                    H("label", { className: "pr-label" }, "Miktar (€)",
+                        H("input", {
+                            className: "kp-gir kp-mono", inputMode: "decimal",
+                            value: zekatMiktar, placeholder: "0,01",
+                            onChange: e => {
+                                let t = e.target.value.replace(/[^0-9.,]/g, "").replace(/,/g, ".");
+                                const p = t.split(".");
+                                if (p.length > 2) t = p[0] + "." + p.slice(1).join("");
+                                const [t1, t2] = t.split(".");
+                                t = t2 != null ? t1 + "." + t2.slice(0, 2) : t1;
+                                setZekatMiktar(t.slice(0, 10));
+                                setZekatOnay(false);
+                            },
+                        })),
+                    zekatOnay
+                        ? H("div", { className: "kp-kat mg-onay", style: { margin: "10px 0 0", padding: "12px" } },
+                            H("div", { style: { fontSize: 13.5, lineHeight: 1.55, marginBottom: 10 } }, "Verilen zekat geri alınamaz. Emin misin?"),
+                            H("button", { className: "kp-dg", disabled: mesgul, onClick: () => guvenliIslem(zekatGonder) },
+                                mesgul ? "…" : "Evet, " + zekatMiktar.replace(".", ",") + " € gönder"),
+                            H("button", { className: "kp-dg2", style: { width: "100%", marginTop: 8 }, onClick: () => setZekatOnay(false) }, "Vazgeç"))
+                        : H("button", {
+                            className: "kp-dg",
+                            disabled: mesgul || !Number.isFinite(parseFloat(String(zekatMiktar).replace(",", "."))) || parseFloat(String(zekatMiktar).replace(",", ".")) < 0.01,
+                            onClick: () => setZekatOnay(true),
+                        }, zekatMiktar ? "Zekât gönder · " + zekatMiktar.replace(".", ",") + " €" : "Zekât gönder"));
+            }
+            zekatForm = H(React.Fragment, null,
+                hZ ? H("div", { className: "kp-et", style: { marginBottom: 8 } }, hZ.no + ". haftanın sonuncusu") : null,
+                kisiList,
+                sonuncular.length > 1 ? H("p", { className: "pr-muted" }, "Beraberlikte miktar eşit bölünür.") : null,
+                eylem);
+        }
+        return H(React.Fragment, null,
+            kerizKutusu(),
+            H("div", { className: "mg-bakiye" },
+                H("div", { className: "mg-bak" },
+                    H("b", null, "NAKİT"),
+                    H("strong", null, paraYaz(nakit)),
+                    H("em", null, "Harcanabilir bakiye")),
+                H("div", { className: "mg-bak" },
+                    H("b", null, "SERVET"),
+                    H("strong", { style: { color: "var(--banko)" } }, paraYaz(servet)),
+                    H("em", null, "Nakit + malların bedeli"))),
+            H("div", { className: "kp-kat" },
+                H("div", { className: "kp-et" }, "Zekât"),
+                H("p", { className: "pr-muted", style: { marginTop: 0 } }, "Haftanın fakirine zekat verenin geçmiş günahları affolur"),
+                zekatForm,
+                zekatGecmis.length ? H("div", { style: { marginTop: 16, paddingTop: 12, borderTop: "1px solid var(--cizgi)" } },
+                    H("div", { className: "kp-et" }, "Son zekâtlar"),
+                    zekatGecmis.map(z => H("div", { key: z.id, className: "pr-row" },
+                        H("span", null, oyuncuAd(z.veren) + " → " + oyuncuAd(z.alan) + " · " + z.hafta + ". hf"),
+                        H("strong", { className: "kp-para iyi" }, paraYaz(z.miktar))))) : null),
+            (function () {
+                const hNo = hZ ? hZ.no : null;
+                const hedef = weeks.length ? erzakHedefKisi() : null;
+                const verdim = !!(hNo && (magaza.erzak || []).some(z => z.veren === ben.slug && +z.hafta === +hNo));
+                const sayilar = oyuncular.map(o => ({
+                    slug: o.slug, isim: o.isim,
+                    n: (magaza.erzak || []).filter(z => z.alan === o.slug).length,
+                })).sort((a, b) => b.n - a.n || a.isim.localeCompare(b.isim, "tr"));
+                let erzakEylem = H("p", { className: "pr-muted" }, "Maçlar bitip hafta kapanınca market torbası açılır.");
+                if (weeks.length && hedef) {
+                    const benHedef = hedef.slug === ben.slug;
+                    if (benHedef) {
+                        erzakEylem = H("p", { style: { fontSize: 13.5, color: "var(--banko)", lineHeight: 1.55 } }, "Bu hafta para sıralamasında en sondasın. Erzak alırsın, gönderemezsin.");
+                    } else if (verdim) {
+                        erzakEylem = H("p", { className: "pr-muted" }, hNo + ". hafta için torbanı gönderdin.");
+                    } else {
+                        erzakEylem = erzakOnay
+                            ? H("div", { className: "kp-kat mg-onay", style: { margin: "10px 0 0", padding: "12px" } },
+                                H("div", { style: { fontSize: 13.5, lineHeight: 1.55, marginBottom: 10 } }, "Verilen erzak geri alınamaz. Emin misin?"),
+                                H("button", { className: "kp-dg", disabled: mesgul || nakit < ERZAK_FIYAT, onClick: () => guvenliIslem(erzakGonder) },
+                                    mesgul ? "…" : "Evet, 50 € gönder"),
+                                H("button", { className: "kp-dg2", style: { width: "100%", marginTop: 8 }, onClick: () => setErzakOnay(false) }, "Vazgeç"))
+                            : H("button", {
+                                className: "kp-dg2" + (nakit < ERZAK_FIYAT ? " mg-yetmez" : ""),
+                                style: { width: "100%", marginTop: 10 },
+                                disabled: mesgul || nakit < ERZAK_FIYAT,
+                                onClick: () => setErzakOnay(true),
+                            }, nakit < ERZAK_FIYAT ? "Yetersiz bakiye" : "50 € market torbası gönder");
+                    }
+                }
+                return H(React.Fragment, null,
+                    H("div", { className: "kp-kat" },
+                        H("div", { className: "kp-et" }, "Market torbası"),
+                        H("p", { className: "pr-muted", style: { marginTop: 0 } }, "İsteğe bağlı — kimse göndermek zorunda değil. Hafta kapanınca para sıralamasının en düşüğüne 50 €’luk erzak. Nakit yazılmaz. Zekât alanla aynı kişi olabilir. Herkes o hafta en fazla bir kez gönderir."),
+                        hNo ? H("div", { className: "kp-et", style: { marginBottom: 8 } }, hNo + ". haftanın erzakı") : null,
+                        hedef ? H("div", { style: { display: "flex", alignItems: "center", gap: 10, margin: "8px 0 12px" } },
+                            H(Yuz, { isim: hedef.isim, boy: 40, vurgu: false }),
+                            H("div", null,
+                                H("div", { style: { fontSize: 15, fontWeight: 600 } }, hedef.isim),
+                                H("span", { className: "kp-unvan kotu" }, "ERZAK"))) : null,
+                        erzakEylem),
+                    H("div", { className: "kp-kat" },
+                        H("div", { className: "kp-et" }, "Evine gelen erzak sayısı"),
+                        sayilar.map(o => H("div", { key: o.slug, className: "pr-row" },
+                            H("span", { style: { color: o.slug === ben.slug ? "var(--yesil)" : "var(--fg)" } }, o.isim),
+                            H("strong", { className: "kp-mono", style: { fontSize: 22, color: o.n ? "var(--banko)" : "var(--sol)" } }, String(o.n))))));
+            })(),
+            H("div", { className: "kp-kat", style: { padding: "10px 14px 6px" } },
+                H("div", { className: "kp-et" }, "Vitrin"),
+                H("p", { className: "pr-muted", style: { marginTop: 0 } }, "Stok sınırlı. Alanın malı, nakit düşer — klasmanda servet durur."),
+                vitrin),
+            H("div", { className: "kp-kat", style: { padding: "12px 10px" } },
+                H("div", { className: "kp-et", style: { padding: "0 4px" } }, "Servet sırası"),
+                H("p", { className: "pr-muted", style: { padding: "0 4px" } }, "Alışveriş nakit düşürür, serveti düşürmez."),
+                siraliServet.map((o, i) => H("div", {
+                    key: o.slug, className: "kp-sira",
+                    style: { borderTop: i ? "1px solid var(--cizgi)" : "none", background: o.slug === ben.slug ? "color-mix(in oklab, var(--banko) 14%, transparent)" : "transparent" },
+                },
+                    H("span", { className: "kp-mono", style: { fontSize: 12, color: i === 0 ? "var(--banko)" : "var(--sol)", width: 18, flexShrink: 0, fontWeight: 700 } }, (i + 1) + "."),
+                    H(Yuz, { isim: o.isim, boy: 36, vurgu: i === 0 }),
+                    H("span", { style: { display: "flex", flexDirection: "column", gap: 3, minWidth: 0, flex: 1 } },
+                        H("span", { style: { fontSize: 14, fontWeight: 600, color: o.slug === ben.slug ? "var(--yesil)" : "var(--fg)" } },
+                            o.isim,
+                            o.mallar.map(u => H("span", { key: u.id, className: "mg-rozet" }, u.kisa))),
+                        H("span", { className: "kp-mono", style: { fontSize: 11, color: "var(--sol)" } }, "nakit " + paraYaz(o.nakit))),
+                    H("span", { className: "kp-para", style: { color: "var(--banko)" } }, paraYaz(o.servet))))));
+    }
+    function ayaktaGorunumu() {
+        const a = ayakta || AYAKTA_BOS;
+        const hf = aktif ? String(aktif.hafta) : "";
+        const picks = (hf && a.secimler[hf]) || {};
+        const coz = (hf && a.cozulen && a.cozulen[hf]) || {};
+        const canli = a.canli || [];
+        const giren = a.girenler.indexOf(ben.slug) >= 0;
+        const hayatta = canli.indexOf(ben.slug) >= 0;
+        const benimPick = picks[ben.slug];
+        const benimCoz = coz[ben.slug];
+        const kullan = (a.kullanilan && a.kullanilan[ben.slug]) || [];
+        const nakit = nakitHesap(ben.slug);
+        const girisAcik = ayaktaGirisAcik() && !giren;
+        const liste = [];
+        if (aktif && aktif.maclar) {
+            aktif.maclar.forEach(function (m) {
+                liste.push({ idx: m.e, rakip: m.d, ev: true });
+                liste.push({ idx: m.d, rakip: m.e, ev: false });
+            });
+        }
+        function nedenYaz(e) {
+            return ruletNedenYaz(e.neden, e.takim != null ? T(e.takim).ad : "");
+        }
+        const kisiSat = function (sl, alt) {
+            const o = oyuncular.find(function (x) { return x.slug === sl; });
+            const isim = (o && o.isim) || sl;
+            return H("div", { key: sl, className: "ay-kisi" },
+                H(Yuz, { isim: isim, boy: 36 }),
+                H("div", { style: { minWidth: 0, flex: 1 } },
+                    H("div", { style: { fontWeight: 600, fontSize: 14 } }, isim),
+                    alt ? H("div", { className: "kp-mono", style: { fontSize: 11, color: "var(--sol)", marginTop: 2 } }, alt) : null));
+        };
+        const buHaftaIlan = Object.keys(coz).map(function (sl) {
+            const c = coz[sl];
+            const takimAd = c.takim != null ? T(c.takim).ad : "";
+            const metin = ruletNedenYaz(c.sonuc, takimAd);
+            return { sl: sl, yazi: c.sonuc === "G" ? metin + " · masada kaldı" : metin + " · elendi" };
+        });
+        let secim = null;
+        if (MISAFIR) {
+            secim = H("p", { className: "pr-muted" }, "Misafir görünümü: kimin tura girdiği görünür, el maç bitene kadar gizli. Seçim yapılamaz.");
+        } else if (!aktif) {
+            secim = H("p", { className: "pr-muted" }, "Yeni hafta açılınca seçim başlar.");
+        } else if (girisAcik) {
+            secim = ayGirisOnay
+                ? H("div", { className: "kp-kat mg-onay", style: { margin: 0, padding: 12 } },
+                    H("div", { style: { fontSize: 13.5, lineHeight: 1.55, marginBottom: 10 } },
+                        "Giriş " + paraYaz(AYAKTA_UCRET) + " nakitten düşer, Keriz Parası kasasına yazılır. Ruleti kazanan bu kasayı alır. Emin misin?"),
+                    H("button", { className: "kp-dg", disabled: mesgul, onClick: function () { return guvenliIslem(ayaktaGir); } }, mesgul ? "…" : "Evet, tura gir"),
+                    H("button", { className: "kp-dg2", style: { width: "100%", marginTop: 8 }, onClick: function () { setAyGirisOnay(false); } }, "Vazgeç"))
+                : H(React.Fragment, null,
+                    H("p", { className: "pr-muted" }, nakit < AYAKTA_UCRET
+                        ? "Giriş " + paraYaz(AYAKTA_UCRET) + ". Bakiyen " + paraYaz(nakit) + "."
+                        : "Bu tura girmek " + paraYaz(AYAKTA_UCRET) + " — Keriz Parası kasasına yazılır. Ruleti kazanan kasayı alır. Takımı her turda bir kez seçersin; yalnız galibiyet yaşatır. El maç bitene kadar gizli."),
+                    H("button", {
+                        className: "kp-dg", disabled: mesgul || nakit < AYAKTA_UCRET || ruletKapali,
+                        onClick: function () { setAyGirisOnay(true); },
+                    }, nakit < AYAKTA_UCRET ? "Yetersiz bakiye" : "Tura gir · " + paraYaz(AYAKTA_UCRET)));
+        } else if (!giren) {
+            secim = H("p", { className: "pr-muted" }, ruletKapali || teslimKapali || (a.baslangicHafta != null && aktif && +a.baslangicHafta !== +aktif.hafta) || (a.turBitisHafta != null && +a.turBitisHafta === +aktif.hafta)
+                ? "Bu tura yetişemedin. Sonraki turda girersin."
+                : "Teslim kapalı. Yeni turda girersin.");
+        } else if (!hayatta) {
+            const benEle = (a.elenen || []).filter(function (e) { return e.slug === ben.slug; }).pop();
+            secim = H("p", { className: "pr-muted" }, "Bu tur senin için bitti." + (benEle ? " " + benEle.hafta + ". hafta · " + nedenYaz(benEle) + "." : ""));
+        } else if (benimCoz && benimCoz.sonuc === "G") {
+            secim = H("p", { className: "pr-muted" }, T(benimCoz.takim).ad + " kazandı. Masada kaldın. Elin açıldı.");
+        } else if (benimPick != null) {
+            secim = H("p", { className: "pr-muted" }, T(benimPick).ad + " kilitlendi. Elin gizli — maçın bitince masaya düşer.");
+        } else if (ruletKapali) {
+            secim = H("p", { className: "pr-muted" }, "Seçmedin. İlk maç başladı, eleneceksin.");
+        } else {
+            secim = H(React.Fragment, null,
+                H("p", { className: "pr-muted" }, "Bu hafta kazanacak takımı seç. Kullandığın takımlar soluk. El maç bitene kadar gizli. Berabere ve mağlubiyet eler."),
+                H("div", { className: "ay-grid" }, liste.map(function (x) {
+                    const t = T(x.idx), r = T(x.rakip);
+                    const kullanildi = kullan.indexOf(x.idx) >= 0;
+                    const on = aySec === x.idx;
+                    return H("button", {
+                        key: x.idx, type: "button",
+                        className: "ay-tak" + (on ? " on" : "") + (kullanildi ? " pas" : ""),
+                        disabled: kullanildi || mesgul,
+                        onClick: function () { if (!kullanildi) setAySec(x.idx); },
+                    },
+                        H("b", null, t.kod),
+                        H("span", null, t.ad),
+                        H("span", null, (x.ev ? "ev · " : "dep · ") + r.kod + (kullanildi ? " · kullanıldı" : "")));
+                })),
+                H("div", { className: "ay-kilit" },
+                    aySecOnay
+                        ? H("div", { className: "kp-kat mg-onay", style: { margin: 0, padding: 12 } },
+                            H("div", { style: { fontSize: 13.5, lineHeight: 1.55, marginBottom: 10 } },
+                                T(aySec).ad + " kilitlenir, değiştirilemez. Kazanmazsa elenirsin. Elin maç bitene kadar gizli. Emin misin?"),
+                            H("button", { className: "kp-dg", disabled: mesgul, onClick: function () { return guvenliIslem(ayaktaKilitle); } }, mesgul ? "…" : "Evet, kilitle"),
+                            H("button", { className: "kp-dg2", style: { width: "100%", marginTop: 8 }, onClick: function () { setAySecOnay(false); } }, "Dön"))
+                        : H("button", {
+                            className: "kp-dg",
+                            disabled: aySec == null || ruletKapali || mesgul,
+                            onClick: function () { setAySecOnay(true); },
+                        }, aySec == null ? "Takım seç" : T(aySec).ad + " · kilitle")));
+        }
+        return H(React.Fragment, null,
+            H("div", { className: "rl-hero" },
+                H("div", { className: "rl-ust" },
+                    H(RuletFiguru, { don: canli.length > 1 }),
+                    H("div", { className: "rl-bas" },
+                        H("div", { className: "kp-et", style: { marginBottom: 6 } }, "Tur " + a.tur),
+                        H("h1", null, "Rulet"),
+                        H("p", null, "Eller kör. Kader, o kişinin maçı bitince düşer."))),
+                H("div", { className: "rl-meta" },
+                    H("div", null, H("b", null, "KERİZ"), H("strong", null, paraYaz(kerizToplam(magaza, a))), H("em", null, "kazanan alır")),
+                    H("div", null, H("b", null, "MASADA"), H("strong", null, String(canli.length)), H("em", null, (a.girenler.length || 0) + " kişi girdi"))),
+                canli.length
+                    ? H("div", { className: "rl-yuzler" }, canli.map(function (sl) {
+                        const o = oyuncular.find(function (x) { return x.slug === sl; });
+                        return H(Yuz, { key: sl, isim: (o && o.isim) || sl, boy: 36, vurgu: sl === ben.slug });
+                    }))
+                    : H("p", { className: "pr-muted", style: { marginBottom: 0 } }, "Kupon ve portföyden ayrı. Masada yalnız kimlerin girdiği görünür.")),
+            H("div", { className: "kp-kat" },
+                H("div", { className: "kp-et" }, "Masada"),
+                canli.length ? canli.map(function (sl) {
+                    return kisiSat(sl, "rulete girdi");
+                }) : H("p", { className: "pr-muted" }, a.girenler.length ? "Kimse kalmadı." : "Henüz kimse girmedi.")),
+            buHaftaIlan.length ? H("div", { className: "kp-kat" },
+                H("div", { className: "kp-et" }, aktif ? (aktif.hafta + ". hafta · maç bitimi") : "Maç bitimi"),
+                buHaftaIlan.map(function (x) {
+                    return H("div", { key: x.sl, className: "pr-row" },
+                        H("span", null, oyuncuAd(x.sl)),
+                        H("strong", null, x.yazi));
+                })) : null,
+            (a.elenen || []).length ? H("div", { className: "kp-kat" },
+                H("div", { className: "kp-et" }, "Elenen"),
+                a.elenen.map(function (e) {
+                    return kisiSat(e.slug, e.hafta + ". hf · " + nedenYaz(e));
+                })) : null,
+            H("div", { className: "kp-kat" },
+                H("div", { className: "kp-et" }, aktif ? (aktif.hafta + ". hafta · senin elin") : "Seçim"),
+                H("p", { className: "pr-muted" }, "Kimse kimsenin elini görmez. Maç bitince sonuç masaya düşer."),
+                secim),
+            (a.gecmis || []).length ? H("div", { className: "kp-kat" },
+                H("div", { className: "kp-et" }, "Tur hikâyesi"),
+                a.gecmis.slice().reverse().map(function (g, i) {
+                    return H("div", { key: g.tur + "-" + i, style: { padding: "10px 0", borderBottom: "1px solid var(--cizgi)" } },
+                        H("div", { style: { fontWeight: 600, marginBottom: 6 } },
+                            g.devir ? (g.tur + ". tur · kazanan yok · Keriz Parası devretti") : (g.tur + ". tur · " + oyuncuAd(g.kazanan) + " kazandı · " + paraYaz(g.kasa))),
+                        (g.elenen || []).map(function (e) {
+                            return H("div", { key: e.slug, className: "kp-mono", style: { fontSize: 11.5, color: "var(--sol)", marginTop: 3 } },
+                                oyuncuAd(e.slug) + " · " + e.hafta + ". hf · " + nedenYaz(e));
+                        }));
+                })) : null);
+    }
+    function transferGorunumu() {
+        const weeks = (tablo && tablo.haftalar) || [];
+        const p = ben && portfoy[ben.slug];
+        const kilitler = (transfer && transfer.kilitler) || {};
+        const kilitSay = Object.keys(kilitler).length;
+        const pfSay = Object.keys(portfoy || {}).length;
+        const benimKilit = ben && kilitler[ben.slug];
+        const sure = transfer && transfer.kapanis ? Math.max(0, transfer.kapanis - simdi) : 0;
+        const gun = Math.floor(sure / 86400000), sa = Math.floor((sure % 86400000) / 3600000), dk = Math.floor((sure % 3600000) / 60000);
+        const sureYaz = gun + "g " + sa + "s " + dk + "dk";
+        const satF = trSat == null ? 0 : transferFiyat(+trSat);
+        const alF = trAl == null ? 0 : transferFiyat(+trAl);
+        const komisyon = (trSat != null && trAl != null) ? TRANSFER_KOMISYON : 0;
+        const kalan = p ? KREDI - (p.harcanan || 0) + (trSat == null ? 0 : satF) - (trAl == null ? 0 : alF) - komisyon : 0;
+        const yasak = ((p && p.yasak) || []).map(Number);
+        const benimIdx = ((p && p.takimlar) || []).map(Number);
+        const alAday = takimlar.map((_, i) => i).filter(i => !benimIdx.includes(i));
+        const acik = transferAcik;
+        const uygulandi = !!(transfer && transfer.uygulandi);
+        const satirlar = Object.entries(kilitler).map(([sl, k]) => {
+            const ad = oyuncuAd(sl);
+            if (k.pas) return { sl, ad, yazi: "pas geçti", dip: "bu sezon hak kullanılmadı" };
+            return { sl, ad, yazi: T(k.sat).kod + " → " + T(k.al).kod, dip: (k.satF || 0) + "k − " + (k.alF || 0) + "k − " + TRANSFER_KOMISYON + "k komisyon" };
+        });
+        const manset = satirlar.length
+            ? satirlar.map(x => x.ad + " " + (x.yazi === "pas geçti" ? "pas" : x.yazi)).join(" · ")
+            : "Kimse kıpırdamadı.";
+        if (weeks.length < TRANSFER_SONRA && !transfer)
+            return H("div", { className: "kp-kat" },
+                H("div", { className: "kp-et" }, "Devre arası transfer"),
+                H("p", { className: "pr-muted", style: { marginTop: 0 } },
+                    TRANSFER_SONRA + ". hafta kapanınca 3 günlüğüne bir pencere açılır. Sezonda bir kez: bir takım sat, bir al, " + TRANSFER_KOMISYON + " kredi komisyon. Sattığını geri alamazsın. Seçimler kör."));
+        if (uygulandi)
+            return H("div", { className: "kp-kat" },
+                H("div", { className: "kp-et" }, "Devre arası pazar"),
+                H("h2", { className: "kp-h", style: { fontSize: 22, margin: "4px 0 12px", color: "#7D2F24" } }, manset),
+                satirlar.length ? satirlar.map(x => H("div", { key: x.sl, className: "cr-sat" },
+                    H("span", { style: { display: "flex", alignItems: "center", gap: 8 } }, H(Yuz, { isim: x.ad, boy: 32 }), x.ad),
+                    H("div", { className: "kp-mono", style: { fontSize: 12, textAlign: "right" } }, x.yazi, H("div", { style: { color: "var(--sol)", fontSize: 10, marginTop: 2 } }, x.dip))
+                )) : H("p", { className: "pr-muted" }, "Pencere boş kapandı."));
+        if (!acik && transfer && !uygulandi && simdi >= transfer.kapanis)
+            return H("div", { className: "kp-kat" },
+                H("div", { className: "kp-et" }, "Pencere doldu"),
+                H("p", { className: "pr-muted", style: { marginTop: 0 } }, "Süre bitti. Transferler açılıyor."),
+                H("button", { className: "kp-dg", disabled: mesgul, onClick: () => guvenliIslem(() => transferUygula(true)) }, "Transferleri aç"));
+        if (!acik)
+            return H("div", { className: "kp-kat" },
+                H("div", { className: "kp-et" }, "Transfer penceresi"),
+                H("p", { className: "pr-muted", style: { marginTop: 0 } }, "Pencere henüz açık değil."));
+        const kilitList = H("div", { className: "kp-kat", style: { borderColor: "var(--banko)" } },
+            H("div", { className: "kp-et", style: { color: "var(--banko)" } }, "Transfer penceresi açık · " + sureYaz),
+            H("p", { className: "pr-muted", style: { marginTop: 0 } }, "Seçimler kör. " + kilitSay + "/" + Math.max(pfSay, 1) + " kilitledi. Herkes kilitleyince veya süre bitince açılır. Komisyon " + TRANSFER_KOMISYON + " kredi."),
+            oyuncular.map(o => H("div", { key: o.slug, className: "cr-sat" },
+                H("span", { style: { display: "flex", alignItems: "center", gap: 8, opacity: kilitler[o.slug] ? 1 : 0.55 } }, H(Yuz, { isim: o.isim, boy: 32, vurgu: !!kilitler[o.slug] }), o.isim),
+                H("span", { className: "kp-mono", style: { fontSize: 12, color: kilitler[o.slug] ? "var(--yesil)" : "var(--sol)" } }, kilitler[o.slug] ? "kilitledi" : "bekleniyor"))),
+            kilitSay >= pfSay && pfSay > 0 ? H("button", { className: "kp-dg", style: { marginTop: 10 }, disabled: mesgul, onClick: () => guvenliIslem(() => transferUygula(true)) }, "Transferleri aç") : null);
+        if (p && p.transfer)
+            return H(React.Fragment, null, kilitList, H("div", { className: "kp-kat" }, H("p", { className: "pr-muted", style: { margin: 0 } }, "Bu sezon hakkını kullandın.")));
+        if (benimKilit)
+            return H(React.Fragment, null, kilitList, H("div", { className: "kp-kat" },
+                H("p", { style: { fontSize: 13.5, lineHeight: 1.6, margin: 0 } }, benimKilit.pas ? "Pas geçtin, kilitlendi." : "Transferin kilitli. Pencere kapanınca açılır.")));
+        if (!p)
+            return H(React.Fragment, null, kilitList, H("div", { className: "kp-kat" }, H("p", { className: "pr-muted", style: { margin: 0 } }, "Portföyün yok, transfer yok.")));
+        if (trOnay)
+            return H(React.Fragment, null, kilitList, H("div", { className: "kp-kat", style: { borderColor: "var(--banko)" } },
+                H("div", { className: "kp-et", style: { color: "var(--banko)" } }, "Emin misin?"),
+                H("p", { style: { fontSize: 13.5, lineHeight: 1.6 } }, trOnay === "pas"
+                    ? "Bu sezon transfer hakkını kullanmadan kilitlersin. Geri alınamaz."
+                    : "Geri alınamaz. Sattığın takımı bir daha alamazsın. " + (trSat != null && trAl != null ? T(trSat).kod + " → " + T(trAl).kod + " · kalan " + kalan + "k." : "")),
+                H("button", { className: "kp-dg", disabled: mesgul, onClick: () => guvenliIslem(() => transferKilitle(trOnay === "pas")) }, trOnay === "pas" ? "Evet, pas geç" : "Evet, kilitle"),
+                H("button", { className: "kp-dg2", style: { width: "100%", marginTop: 8 }, onClick: () => setTrOnay(false) }, "Dön")));
+        return H(React.Fragment, null, kilitList, H("div", { className: "kp-kat" },
+            H("div", { className: "kp-et" }, "Sat"),
+            H("div", { className: "tr-grid" },
+                benimIdx.map(i => H("button", { key: i, type: "button", className: "ol-sec" + (trSat === i ? " on" : ""), onClick: () => { setTrSat(i); setTrOnay(false); } },
+                    H("b", null, T(i).kod + "  ·  " + transferFiyat(i) + "k"),
+                    H("span", null, T(i).ad)))),
+            H("div", { className: "kp-et", style: { marginTop: 14 } }, "Al"),
+            H("div", { className: "tr-grid" },
+                alAday.map(i => H("button", {
+                    key: i, type: "button",
+                    className: "ol-sec" + (trAl === i ? " on" : ""),
+                    disabled: yasak.includes(i),
+                    onClick: yasak.includes(i) ? undefined : () => { setTrAl(i); setTrOnay(false); },
+                    style: yasak.includes(i) ? { opacity: 0.4 } : undefined,
+                }, H("b", null, T(i).kod + "  ·  " + transferFiyat(i) + "k"),
+                    H("span", null, T(i).ad + (yasak.includes(i) ? " · sattın, yasak" : ""))))),
+            H("div", { className: "kp-mono", style: { fontSize: 12, color: kalan < 0 ? "var(--kirmizi)" : "var(--sol)", marginTop: 10 } },
+                "Kalan kredi: " + kalan + "k" + (trSat != null && trAl != null ? "  ·  komisyon " + TRANSFER_KOMISYON + "k  ·  " + T(trSat).kod + " → " + T(trAl).kod : "  ·  sat ve al seç, komisyon " + TRANSFER_KOMISYON + "k")),
+            H("button", { className: "kp-dg", style: { marginTop: 12 }, disabled: mesgul || trSat == null || trAl == null || kalan < 0, onClick: () => setTrOnay(true) }, "Transferi kilitle"),
+            H("button", { className: "kp-dg2", style: { width: "100%", marginTop: 8 }, disabled: mesgul, onClick: () => setTrOnay("pas") }, "Pas — bu sezon transfer yok")));
+    }
+    function canliPencere() {
+        if (!aktif || !aktif.maclar || !aktif.maclar.length) return false;
+        const baslar = aktif.maclar.map(m => Number.isFinite(m.baslangic) ? m.baslangic : null).filter(t => t != null);
+        const ilk = baslar.length ? Math.min(...baslar) : (Number.isFinite(aktif.sonTeslim) ? aktif.sonTeslim : null);
+        if (ilk == null || simdi < ilk) return false;
+        const map = sporDurum.hafta === aktif.hafta ? sporDurum.sonuclar : {};
+        const hepsi = aktif.maclar.every(m => map[kodEslesmesi(T(m.e).kod) + ">" + kodEslesmesi(T(m.d).kod)]);
+        return !hepsi;
+    }
+    return (React.createElement("div", { className: "kp" },
+        React.createElement("style", null, stil),
+        React.createElement("div", { className: "kp-masa-col" },
+        React.createElement("div", { className: "kp-ust" },
+            React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 10 } },
+                MISAFIR
+                    ? React.createElement("div", { className: "kp-misafir" }, "Misafir")
+                    : React.createElement(Yuz, { isim: ben === null || ben === void 0 ? void 0 : ben.isim, boy: 50, vurgu: true }),
+                React.createElement("div", null,
+                    React.createElement("div", { className: "kp-h", style: { fontSize: 18 } }, MISAFIR ? "İzleniyor" : (ben === null || ben === void 0 ? void 0 : ben.isim)),
+                    React.createElement("div", { className: "kp-mono", style: { fontSize: 10.5, color: "var(--sol)", marginTop: 4 } },
+                        lig.toUpperCase(),
+                        " \u00B7 ",
+                        (tablo === null || tablo === void 0 ? void 0 : tablo.haftalar.length) || 0,
+                        " HAFTA OYNANDI"))),
+            !MISAFIR && React.createElement("div", { style: { textAlign: "right" } },
+                React.createElement("div", { className: "kp-mono", style: { fontSize: 20, fontWeight: 700, color: "var(--fg)" } }, ((tablo === null || tablo === void 0 ? void 0 : tablo.toplam[ben.slug]) || 0) + portfoyPuan(ben.slug)),
+                React.createElement("div", { className: "kp-et", style: { marginBottom: 0, fontSize: 9 } }, "PUAN"))),
+        React.createElement(Bilgi, null),
+        React.createElement("div", { className: "kp-ic" },
+            React.createElement("div", { className: "kp-masa" },
+            aktif && React.createElement("div", { className: "kp-kat", role: "status" },
+                Number.isFinite(aktif.sonTeslim)
+                    ? (teslimKapali ? "Kupon teslimi kapandı · " : "Son teslim · ") + new Date(aktif.sonTeslim).toLocaleString("tr-TR", { timeZone: "Europe/Istanbul", dateStyle: "medium", timeStyle: "short" }) + " (Türkiye)"
+                    : "Bu haftanın teslim saati belirlenmemiş. Yeni kupon alımı kapalı.",
+                !Number.isFinite(aktif.sonTeslim) && kurucuMu && React.createElement(React.Fragment, null,
+                    TeslimAlani(), React.createElement("button", { className: "kp-dg2", disabled: mesgul, onClick: () => guvenliIslem(teslimBelirle) }, "Teslim saatini kaydet"))),
+            kerizSerit()),
+            resmi && resmi.tabloIzi !== KAnaliz.stamp(tablo.haftalar) && React.createElement("div", { className: "kp-kat", role: "status" }, "Resmî puan kaydı eski. Portföy şimdilik girilen maç sonuçlarından hesaplanıyor; eksik maç varsa kurucu resmî puanları güncellemeli."),
+            sekme === "merkez" && merkezGorunumu(),
+            sekme === "kupon" && aktif && canliPencere() && React.createElement("div",{className:"kp-kat"},
+                React.createElement("div",{className:"kp-et"},"Canlı skor"),
+                React.createElement("p",{className:"pr-muted"},sporDurum.hafta===aktif.hafta&&sporDurum.zaman?"Son kontrol: "+new Date(sporDurum.zaman).toLocaleTimeString('tr-TR')+(sporDurum.hata?' · Önceki veri gösteriliyor.':''):"Henüz sonuç alınmadı."),
+                sporDurum.hata&&React.createElement("p",{className:"pr-muted",role:"status"},sporDurum.hata),
+                sporDurum.hafta===aktif.hafta&&aktif.maclar.map((m,i)=>{const sn=sporDurum.sonuclar[kodEslesmesi(T(m.e).kod)+'>'+kodEslesmesi(T(m.d).kod)];return sn?React.createElement("div",{className:"pr-row",key:i},T(m.e).kod+' – '+T(m.d).kod,React.createElement("strong",null,sn.join(' – '))):null;}),
+                React.createElement("button",{className:"kp-dg2",disabled:sporDurum.mesgul,onClick:sporYenile},sporDurum.mesgul?'Kontrol ediliyor…':'Sonuçları kontrol et')),
+            sekme === "kupon" && (React.createElement(React.Fragment, null, !aktif ? (MISAFIR ? (React.createElement("div", { className: "kp-kat" },
+                React.createElement("div", { className: "kp-et" }, "Bu hafta"),
+                React.createElement("p", { className: "pr-muted", style: { margin: 0 } }, "Hafta henüz açılmadı. Klasman ve geçmiş sonuçlar duruyor."))) : (React.createElement(React.Fragment, null,
+                React.createElement("div", { className: "kp-kat" },
+                    React.createElement("div", { className: "kp-et" }, "Yeni hafta"),
+                    kurucuMu && React.createElement("button",{className:"kp-dg2",disabled:mesgul,onClick:()=>guvenliIslem(fiksturCek),style:{marginBottom:12}},"Güncel fikstür ve saatleri getir"),
+                    hazirCozum && yeniMac.liste.length === 0 && (React.createElement("div", { style: { background: "color-mix(in oklab, var(--yesil) 12%, transparent)", border: "1px solid var(--yesil)", borderRadius: 5, padding: 12, marginBottom: 14 } },
+                        React.createElement("div", { style: { fontSize: 13.5, lineHeight: 1.6, marginBottom: 10 } },
+                            gelecekHafta,
+                            ". haftanın kayıtlı fikstürü — ",
+                            hazir.tarih,
+                            ", 9 ma\u00E7."),
+                        React.createElement("button", { className: "kp-dg", onClick: () => setYeniMac({ liste: hazirCozum, bekleyen: null }) }, "Fikst\u00FCr\u00FC y\u00FCkle"))),
+                    React.createElement("p", { style: { fontSize: 13.5, color: "var(--sol)", lineHeight: 1.6, margin: "0 0 14px" } },
+                        hazirCozum && yeniMac.liste.length === 0 ? "Ya da maçları kendin ekle: " : "Maçları ekle: ",
+                        "\u00F6nce ev sahibine, sonra deplasman tak\u0131m\u0131na dokun."),
+                    React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 5 } }, takimlar.map((t, i) => (React.createElement("button", { key: i, className: `kp-cip ${yeniMac.bekleyen === i ? "on" : ""} ${kullanilan.has(i) && yeniMac.bekleyen !== i ? "pas" : ""}`, disabled: kullanilan.has(i) && yeniMac.bekleyen !== i, onClick: () => takimTikla(i) }, t.kod)))),
+                    yeniMac.bekleyen !== null && (React.createElement("div", { className: "kp-mono", style: { fontSize: 12, color: "var(--yesil)", marginTop: 12 } },
+                        T(yeniMac.bekleyen).kod,
+                        " \u2014 \u015Fimdi rakibine dokun"))),
+                yeniMac.liste.length > 0 && (React.createElement("div", { className: "kp-kat" },
+                    React.createElement("div", { className: "kp-et" },
+                        "Hafta ",
+                        ((tablo === null || tablo === void 0 ? void 0 : tablo.haftalar.length) || 0) + 1,
+                        " fikst\u00FCr\u00FC"),
+                    yeniMac.liste.map((m, i) => (React.createElement("div", { key: i, className: "kp-mono", style: { display: "grid", gridTemplateColumns: "1fr 22px 1fr 26px", gap: 6, alignItems: "center", padding: "8px 0", borderBottom: "1px solid var(--cizgi)", fontSize: 13 } },
+                        React.createElement("div", { style: { textAlign: "right" } }, T(m.e).ad),
+                        React.createElement("div", { style: { textAlign: "center", color: "var(--sol)" } }, "\u2013"),
+                        React.createElement("div", null, T(m.d).ad),
+                        React.createElement("button", { onClick: () => setYeniMac({ ...yeniMac, liste: yeniMac.liste.filter((_, x) => x !== i) }), style: { background: "none", border: "none", color: "var(--sol)", cursor: "pointer", fontSize: 15 }, "aria-label": "Ma\u00E7\u0131 \u00E7\u0131kar" }, "\u00D7")))),
+                    TeslimAlani(), React.createElement("button", { className: "kp-dg", disabled: !kurucuMu || mesgul, style: { marginTop: 14 }, onClick: () => guvenliIslem(haftayiAc) }, "Haftay\u0131 a\u00E7")))))) : MISAFIR ? (React.createElement(React.Fragment, null,
+                React.createElement("div", { className: "kp-kat" },
+                    React.createElement("div", { className: "kp-et" }, "Hafta " + aktif.hafta),
+                    React.createElement("p", { className: "pr-muted", style: { marginTop: 0 } }, "Tahminler maç bitene ve hafta kapanana kadar gizli. Yalnız kim kupon yatırdı görünür.")),
+                React.createElement("div", { className: "kp-kat" },
+                    React.createElement("div", { className: "kp-et" }, "Fikstür"),
+                    aktif.maclar.map((m, i) => React.createElement("div", { key: i, className: "kp-mono", style: { display: "grid", gridTemplateColumns: "1fr 22px 1fr", gap: 6, alignItems: "center", padding: "8px 0", borderBottom: "1px solid var(--cizgi)", fontSize: 13 } },
+                        React.createElement("div", { style: { textAlign: "right" } }, T(m.e).ad),
+                        React.createElement("div", { style: { textAlign: "center", color: "var(--sol)" } }, "\u2013"),
+                        React.createElement("div", null, T(m.d).ad)))),
+                React.createElement("div", { className: "kp-kat" },
+                    React.createElement("div", { className: "kp-et" }, "Kim yatırdı"),
+                    oyuncular.map(o => (React.createElement("div", { key: o.slug, style: { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", fontSize: 13.5, borderBottom: "1px solid var(--cizgi)" } },
+                        React.createElement("span", { style: { display: "flex", alignItems: "center", gap: 10, opacity: kuponlar[o.slug] ? 1 : .55 } },
+                            React.createElement(Yuz, { isim: o.isim, boy: 40, vurgu: !!kuponlar[o.slug] }),
+                            o.isim),
+                        React.createElement("span", { className: "kp-mono", style: { fontSize: 12, color: kuponlar[o.slug] ? "var(--yesil)" : "var(--sol)" } }, kuponlar[o.slug] ? "yatırdı" : "bekleniyor")))),
+                    React.createElement("button", { className: "kp-dg2", style: { width: "100%", marginTop: 12 }, onClick: () => kuponlariYukle(lig, aktif.hafta, "").catch(function () {}) }, "Yenile")))) : sonucGiris ? (React.createElement(React.Fragment, null,
+                React.createElement("div", { className: "kp-kat" },
+                    React.createElement("div", { className: "kp-et" },
+                        "Ger\u00E7ek sonu\u00E7lar \u2014 ",
+                        aktif.hafta,
+                        ". hafta"),
+                    React.createElement("button", { className: "kp-dg2", style: { width: "100%", marginBottom: 14 }, disabled: cekiyor, onClick: sonucCek }, cekiyor ? "Çekiliyor…" : "Sonuçları internetten çek"),
+                    aktif.maclar.map((m, i) => (React.createElement("div", { key: i, className: "kp-mono", style: { display: "grid", gridTemplateColumns: "1fr auto 1fr", gap: 8, alignItems: "center", padding: "10px 0", borderBottom: "1px solid var(--cizgi)" } },
+                        React.createElement("div", { style: { textAlign: "right", fontSize: 13 } }, T(m.e).ad),
+                        React.createElement("div", { style: { display: "flex", gap: 5, alignItems: "center" } }, [0, 1].map(j => {
+                            var _a;
+                            return (React.createElement("input", { key: j, inputMode: "numeric", className: "kp-gir kp-mono", style: { width: 42, padding: "7px 0", textAlign: "center", fontSize: 15 }, value: (_a = sonucGiris[i][j]) !== null && _a !== void 0 ? _a : "", onChange: e => {
+                                    const v = e.target.value.replace(/\D/g, "").slice(0, 2);
+                                    const y = sonucGiris.map(x => [...x]);
+                                    y[i][j] = v === "" ? null : +v;
+                                    setSonucGiris(y);
+                                } }));
+                        })),
+                        React.createElement("div", { style: { fontSize: 13 } }, T(m.d).ad)))),
+                    React.createElement("button", { className: "kp-dg", style: { marginTop: 14 }, disabled: mesgul, onClick: () => guvenliIslem(haftayiKapat) }, mesgul ? "Hesaplanıyor…" : "Haftayı kapat ve puanla"),
+                    React.createElement("button", { className: "kp-dg2", style: { width: "100%", marginTop: 8 }, onClick: () => setSonucGiris(null) }, "Vazge\u00E7"),
+                    React.createElement("div", { style: { fontSize: 11.5, color: "var(--sol)", marginTop: 12, lineHeight: 1.6 } },
+                        "Kapat\u0131nca ",
+                        veren,
+                        " kupon puanlan\u0131r. Kuponunu vermeyen o hafta 0 al\u0131r.")))) : (React.createElement(React.Fragment, null,
+                React.createElement("div", { className: "kp-kagit" },
+                    benimKupon && React.createElement("div", { className: "kp-muhur" }, "KUPON YATIRILDI"),
+                    React.createElement("div", { className: "kp-kbas", style: { alignItems: "center" } },
+                        React.createElement("span", null,
+                            "KUPON \u00B7 HAFTA ",
+                            aktif.hafta),
+                        React.createElement("span", { style: { display: "flex", alignItems: "center", gap: 7 } },
+                            ben.isim.toUpperCase(),
+                            React.createElement("img", { src: avatarBul(ben.isim) || "", alt: "", style: { width: 26, height: 26, borderRadius: "50%", objectFit: "cover", border: "1px solid var(--cizgi)", display: avatarBul(ben.isim) ? "block" : "none" } }))),
+                    React.createElement("div", { style: { fontSize: 9.5, color: "var(--sol)", letterSpacing: ".1em", paddingBottom: 8, borderBottom: "1px dashed var(--cizgi)", marginBottom: 4 } }, "B = banko  ·  bu maçın puanı ×2"),
+                    aktif.maclar.map((m, i) => {
+                        const t = (benimKupon || taslak);
+                        if (!t)
+                            return null;
+                        const kilitli = !!benimKupon || teslimKapali || mesgul;
+                        const oran = aktifOranlar[i];
+                        const kartMac = t.kart && +t.kart.mac === i;
+                        const ayar = (j, delta) => {
+                            const y = { ...taslak, tahminler: taslak.tahminler.map(x => [...x]), kart: taslak.kart || { tur: null, mac: null } };
+                            y.tahminler[i][j] = Math.max(0, Math.min(9, y.tahminler[i][j] + delta));
+                            setTaslak(y);
+                        };
+                        return (React.createElement("div", { key: i, style: { borderBottom: "1px solid color-mix(in oklab, var(--murekkep) 10%, transparent)", background: kartMac ? "color-mix(in oklab, var(--aksan) 10%, transparent)" : "transparent" } },
+                            React.createElement("div", { className: "kp-msatir", style: { border: "none", paddingBottom: 2 }, onClick: kilitli || !taslak || !taslak.kart || !taslak.kart.tur ? undefined : () => setTaslak({ ...taslak, kart: { ...taslak.kart, mac: i } }) },
+                            React.createElement("button", { className: `kp-joker ${t.joker === i ? "on" : ""}`, disabled: kilitli, onClick: (e) => { e.stopPropagation(); setTaslak({ ...taslak, joker: i }); }, "aria-label": "Banko se\u00E7" }, "B"),
+                            React.createElement("div", { className: "kp-ev" }, T(m.e).kod),
+                            React.createElement("div", { className: "kp-sayac" },
+                                !kilitli && React.createElement("button", { className: "kp-sbtn", onClick: (e) => { e.stopPropagation(); ayar(0, -1); }, "aria-label": "Azalt" }, "\u2212"),
+                                React.createElement("span", { className: "kp-skor" }, t.tahminler[i][0]),
+                                !kilitli && React.createElement("button", { className: "kp-sbtn", onClick: (e) => { e.stopPropagation(); ayar(0, 1); }, "aria-label": "Art\u0131r" }, "+"),
+                                React.createElement("span", { style: { margin: "0 2px", color: "var(--sol)" } }, ":"),
+                                !kilitli && React.createElement("button", { className: "kp-sbtn", onClick: (e) => { e.stopPropagation(); ayar(1, -1); }, "aria-label": "Azalt" }, "\u2212"),
+                                React.createElement("span", { className: "kp-skor" }, t.tahminler[i][1]),
+                                !kilitli && React.createElement("button", { className: "kp-sbtn", onClick: (e) => { e.stopPropagation(); ayar(1, 1); }, "aria-label": "Art\u0131r" }, "+")),
+                            React.createElement("div", { className: "kp-dep" }, T(m.d).kod),
+                            React.createElement("div", null)),
+                            React.createElement("div", { className: "ol-oran" },
+                                oran ? (oran.ev + "% ev · " + oran.ber + "% ber · " + oran.dep + "% dep") : "",
+                                kartMac && t.kart && t.kart.tur ? "  ·  " + kartEtiket(t.kart.tur) : "")));
+                    }),
+                    React.createElement("div", { style: { borderTop: "1px dashed var(--cizgi)", marginTop: 10, paddingTop: 9, fontSize: 10, color: "var(--sol)", letterSpacing: ".08em", display: "flex", justifyContent: "space-between" } },
+                        React.createElement("span", null, "TAM SKOR 5 \u00B7 FARK 3 \u00B7 SONU\u00C7 2"),
+                        React.createElement("span", null,
+                            veren,
+                            "/",
+                            oyuncular.length,
+                            " KUPON")),
+                    React.createElement("div", { style: { marginTop: 12 } },
+                        React.createElement("div", { className: "kp-et", style: { color: "var(--kagit-sol)" } }, "Olay kartı · birini seç, maça dokun"),
+                        React.createElement("div", { className: "ol-kart" },
+                            KARTLAR.map(k => React.createElement("button", {
+                                key: k.id, type: "button",
+                                className: "ol-sec" + ((benimKupon || taslak) && (benimKupon || taslak).kart && (benimKupon || taslak).kart.tur === k.id ? " on" : ""),
+                                disabled: !!benimKupon || teslimKapali || mesgul,
+                                onClick: () => taslak && setTaslak({ ...taslak, kart: { tur: k.id, mac: (taslak.kart && taslak.kart.mac) != null ? taslak.kart.mac : null } }),
+                            }, React.createElement("b", null, k.ad + "  ·  +" + k.puan), React.createElement("span", null, k.acik)))),
+                        (benimKupon || taslak) && (benimKupon || taslak).kart && (benimKupon || taslak).kart.tur && (benimKupon || taslak).kart.mac == null
+                            ? React.createElement("p", { style: { fontSize: 12, color: "var(--aksan)", margin: "8px 0 0" } }, "Kartın maçını yukarıdan seç.")
+                            : null)),
+                benimKupon ? (React.createElement("div", { className: "kp-kat", style: { textAlign: "center", padding: "14px 16px" } },
+                    React.createElement("div", { style: { fontSize: 13.5, color: "var(--sol)", lineHeight: 1.6 } }, "Kuponun kilitli. Hafta kapan\u0131nca herkesin kuponu birlikte a\u00E7\u0131lacak."))) : kuponOnay ? (React.createElement("div", { className: "kp-kat", style: { borderColor: "var(--banko)" } },
+                    React.createElement("div", { className: "kp-et", style: { color: "var(--banko)" } }, "Emin misin?"),
+                    React.createElement("div", { style: { fontSize: 13.5, lineHeight: 1.7, marginBottom: 14 } },
+                        "Kupon yat\u0131r\u0131ld\u0131ktan sonra ",
+                        React.createElement("strong", null, "de\u011Fi\u015Ftirilemez"),
+                        ". Bankon:",
+                        " ",
+                        React.createElement("strong", { className: "kp-mono", style: { color: "var(--banko)" } },
+                            T(aktif.maclar[taslak.joker].e).kod,
+                            " \u2013 ",
+                            T(aktif.maclar[taslak.joker].d).kod),
+                        taslak.kart && taslak.kart.tur != null && taslak.kart.mac != null
+                            ? " · Kart: " + kartEtiket(taslak.kart.tur) + " · " + T(aktif.maclar[taslak.kart.mac].e).kod + "–" + T(aktif.maclar[taslak.kart.mac].d).kod
+                            : ""),
+                    React.createElement("button", { className: "kp-dg", disabled: teslimKapali || mesgul, onClick: () => guvenliIslem(kuponVer) }, "Evet, kuponu yat\u0131r"),
+                    React.createElement("button", { className: "kp-dg2", style: { width: "100%", marginTop: 8 }, onClick: () => setKuponOnay(false) }, "D\u00F6n, bir daha bakay\u0131m"))) : (React.createElement("button", { className: "kp-dg", onClick: () => setKuponOnay(true), disabled: !taslak || teslimKapali || mesgul || !taslak.kart || !taslak.kart.tur || taslak.kart.mac == null }, "Kuponu yat\u0131r")),
+                React.createElement("div", { className: "kp-kat", style: { marginTop: 12 } },
+                    React.createElement("div", { className: "kp-et" }, "Kim yat\u0131rd\u0131"),
+                    oyuncular.map(o => (React.createElement("div", { key: o.slug, style: { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", fontSize: 13.5, borderBottom: "1px solid var(--cizgi)" } },
+                        React.createElement("span", { style: { display: "flex", alignItems: "center", gap: 10, color: o.slug === ben.slug ? "var(--yesil)" : "var(--fg)", opacity: kuponlar[o.slug] ? 1 : .55 } },
+                            React.createElement(Yuz, { isim: o.isim, boy: 40, vurgu: !!kuponlar[o.slug] }),
+                            o.isim),
+                        React.createElement("span", { className: "kp-mono", style: { fontSize: 12, color: kuponlar[o.slug] ? "var(--yesil)" : "var(--sol)" } }, kuponlar[o.slug] ? "yatırdı" : "bekleniyor")))),
+                    React.createElement("button", { className: "kp-dg2", style: { width: "100%", marginTop: 12 }, onClick: () => guvenliIslem(() => kuponlariYukle(lig, aktif.hafta, ben.slug)) }, "Yenile")),
+                React.createElement("div", { className: "kp-kat" },
+                    React.createElement("div", { className: "kp-et" }, "Hafta bitti mi?"),
+                    kurucuMu
+                        ? React.createElement(React.Fragment, null,
+                            React.createElement("p", { style: { fontSize: 13, color: "var(--sol)", lineHeight: 1.6, margin: "0 0 12px" } }, "Ma\u00E7lar oynand\u0131ysa sonu\u00E7lar\u0131 gir, herkesin kuponu otomatik puanlan\u0131r."),
+                            React.createElement("button", { className: "kp-dg2", style: { width: "100%" }, onClick: () => setSonucGiris(aktif.maclar.map(() => [null, null])) }, "Sonu\u00E7lar\u0131 gir"))
+                        : React.createElement("p", { style: { fontSize: 13, color: "var(--sol)", lineHeight: 1.6, margin: 0 } },
+                            "Sonu\u00E7lar\u0131 ", React.createElement("b", { style: { color: "var(--fg)" } }, kurucuAdi), " giriyor. Ma\u00E7lar bitince hafta kapan\u0131r ve puanlar burada g\u00f6r\u00fcn\u00fcr.")))))),
+            sekme === "klasman" && (React.createElement(React.Fragment, null,
+                React.createElement("div", { className: "kp-odul" },
+                    React.createElement("img", { className: "kp-odul-bg", src: GIRIS_GORSEL, alt: "" }),
+                    React.createElement("div", { className: "kp-odul-ic" },
+                        React.createElement("div", { className: "kp-odul-bas" }, "SEZONUN KASASI"),
+                        React.createElement("div", { className: "kp-odul-mal" },
+                            paraYaz(dagitilan),
+                            React.createElement("span", { className: "kp-odul-hedef" }, " / " + SEZON_KASA.toLocaleString("tr-TR") + " \u20AC")),
+                        React.createElement("div", { className: "kp-odul-alt", style: { marginTop: 2 } },
+                            "Her hafta " + HAFTALIK_KASA + " \u20AC da\u011F\u0131t\u0131l\u0131yor \u2014 " + ODULLER.join(" / ") + " \u20AC."),
+                        React.createElement("div", { className: "kp-odul-cizgi" }),
+                        React.createElement("div", { className: "kp-odul-yildiz" }, "Sezon \u00f6d\u00fcl\u00fc · 10 kg k\u00fcl\u00e7e alt\u0131n"),
+                        React.createElement("div", { className: "kp-odul-dip" }, "G\u00f6rseldeki k\u00fcl\u00e7e temsilidir."),
+                        React.createElement("div", { className: "kp-odul-cizgi" }),
+                        (function () {
+                            const bitti = ((tablo && tablo.haftalar) || []).length >= 34;
+                            const lider = klasman[0];
+                            const berabere = lider && klasman.filter(x => x.genel === lider.genel).length > 1;
+                            if (!lider || !klasman.length)
+                                return React.createElement("div", { className: "kp-odul-alt" }, "Sezon ba\u015Flad\u0131\u011F\u0131nda burada lider g\u00f6r\u00fcn\u00fcr.");
+                            if (!portfoyAcik)
+                                return React.createElement(React.Fragment, null,
+                                    React.createElement("div", { className: "kp-odul-ad" }, "?"),
+                                    React.createElement("div", { className: "kp-odul-alt" }, "Portf\u00f6yler a\u00e7\u0131lana kadar genel lider gizli."));
+                            return React.createElement(React.Fragment, null,
+                                React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 9, marginTop: 2 } },
+                                    React.createElement(Yuz, { isim: lider.isim, boy: 34, vurgu: true }),
+                                    React.createElement("span", { className: "kp-odul-ad" }, berabere ? "Ba\u015Fa ba\u015F" : lider.isim)),
+                                React.createElement("div", { className: "kp-odul-alt" },
+                                    bitti ? "Sezon bitti. 1000 g alt\u0131n k\u00fcl\u00e7enin sahibi belli."
+                                          : "\u015Eu an \u00f6nde \u2014 " + lider.genel + " puan. Kupon + portf\u00f6y toplam\u0131nda sezonu 1. bitiren kazan\u0131r."))
+                        })())),
+                sezonSerisi && React.createElement("div", { className: "gr-kut" },
+                    React.createElement("div", { className: "gr-bas" }, "SEZON \u2014 B\u0130R\u0130KEN KUPON PUANI"),
+                    (function () {
+                        const G = sezonSerisi, W = 320, H = 130, sol = 4, sag = 4, ust = 6, alt = 16;
+                        const n = G.haftalar.length;
+                        const x = (i) => sol + (n === 1 ? (W - sol - sag) / 2 : i * (W - sol - sag) / (n - 1));
+                        const y = (v) => ust + (H - ust - alt) * (1 - v / G.enYuksek);
+                        return React.createElement("svg", { className: "gr-svg", viewBox: "0 0 " + W + " " + H, preserveAspectRatio: "none", role: "img" },
+                            [0.5, 1].map((f, k) => React.createElement("line", { key: "g" + k, x1: sol, x2: W - sag, y1: y(G.enYuksek * f), y2: y(G.enYuksek * f), stroke: "var(--cizgi)", strokeWidth: 1 })),
+                            G.seriler.map(se => React.createElement("polyline", {
+                                key: se.slug, fill: "none", stroke: se.renk, strokeWidth: 2,
+                                strokeLinejoin: "round", strokeLinecap: "round",
+                                points: se.nokta.map((v, i) => x(i) + "," + y(v)).join(" ")
+                            })),
+                            G.seriler.map(se => React.createElement("circle", {
+                                key: "s" + se.slug, cx: x(n - 1), cy: y(se.son), r: 3, fill: se.renk
+                            })));
+                    })(),
+                    React.createElement("div", { className: "gr-ef" },
+                        sezonSerisi.seriler.slice().sort((a, b) => b.son - a.son).map(se =>
+                            React.createElement("span", { key: se.slug },
+                                React.createElement("i", { style: { background: se.renk } }),
+                                se.isim, React.createElement("b", null, se.son))))),
+
+                portfoyAcik && ben && portfoyKarne(ben.slug) && React.createElement("div", { className: "kp-kat", style: { padding: "12px 14px" } },
+                    React.createElement("div", { className: "kp-et", style: { padding: 0 } }, "Portf\u00f6y karnen"),
+                    React.createElement("p", { style: { fontSize: 12, color: "var(--sol)", lineHeight: 1.55, margin: "0 0 6px" } },
+                        "Her tak\u0131m\u0131n fiyat\u0131 bir beklenti demek. Sa\u011Fdaki say\u0131, o tak\u0131m\u0131n \u015Fu ana kadar beklentisinin ne kadar \u00fcst\u00fcnde ya da alt\u0131nda oldu\u011Funu g\u00f6sterir."),
+                    portfoyKarne(ben.slug).map(k => React.createElement("div", { key: k.idx, className: "kn-sat" },
+                        React.createElement("span", { className: "kn-kod" }, k.kod),
+                        React.createElement("div", { className: "kn-orta" },
+                            React.createElement("div", { className: "kn-ad" }, k.ad,
+                                k.tekSahip && React.createElement("span", { className: "kn-tek" }, "TEK SAH\u0130P")),
+                            React.createElement("div", { className: "kn-alt" }, k.fiyat + " kredi \u00b7 " + k.oynanan + " ma\u00e7")),
+                        React.createElement("span", { className: "kn-sag" },
+                            React.createElement("div", { className: "kn-fark " + (k.fark > 1.5 ? "iyi" : k.fark < -1.5 ? "kotu" : "orta") },
+                                (k.fark >= 0 ? "+" : "\u2212") + Math.abs(k.fark).toFixed(1)),
+                            React.createElement("div", { className: "kn-puan" }, k.gercek + " / bekl. " + k.simdiBeklenen.toFixed(0)))))),
+
+                React.createElement("div", { className: "kp-kat", style: { padding: "12px 10px" } },
+                    React.createElement("div", { className: "kp-et", style: { padding: "0 4px" } }, "Genel klasman"),
+                    React.createElement("div", { className: "kp-mono", style: { display: "grid", gridTemplateColumns: "20px 1fr 46px 46px 44px", gap: 6, fontSize: 9.5, color: "var(--sol)", padding: "0 4px 8px", borderBottom: "1px solid var(--cizgi)", letterSpacing: ".08em" } },
+                        React.createElement("div", null, "#"),
+                        React.createElement("div", null, "OYUNCU"),
+                        React.createElement("div", { style: { textAlign: "right" } }, "KUPON"),
+                        React.createElement("div", { style: { textAlign: "right" } }, "PORTF\u00D6Y"),
+                        React.createElement("div", { style: { textAlign: "right" } }, "TOPLAM")),
+                    klasman.map((k, i) => {
+                        const roz = koleksiyon(k.slug).rozet;
+                        return React.createElement("div", { key: k.slug, className: "kp-mono", style: { display: "grid", gridTemplateColumns: "20px 1fr 46px 46px 44px", gap: 6, alignItems: "center", padding: "10px 4px", borderBottom: i < klasman.length - 1 ? "1px solid var(--cizgi)" : "none", background: k.slug === ben.slug ? "color-mix(in oklab, var(--banko) 14%, transparent)" : "transparent" } },
+                            React.createElement("div", { style: { color: i === 0 ? "var(--yesil)" : "var(--sol)", fontWeight: 700, fontSize: 13 } }, i + 1),
+                            React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 9, minWidth: 0 } },
+                                React.createElement(Yuz, { isim: k.isim, boy: 40, vurgu: i === 0 }),
+                                React.createElement("div", { style: { minWidth: 0 } },
+                                    React.createElement("div", { style: { fontFamily: "Figtree,sans-serif", fontSize: 14, fontWeight: 600, color: k.slug === ben.slug ? "var(--yesil)" : "var(--fg)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } },
+                                        k.isim,
+                                        sahipMallar(k.slug).map(u => React.createElement("span", { key: u.id, className: "mg-rozet" }, u.kisa)),
+                                        servetHesap(k.slug) > 0 && React.createElement("span", { className: "kp-mono", style: { fontSize: 11, marginLeft: 6, color: "var(--banko)", fontWeight: 700 } }, paraYaz(servetHesap(k.slug)))),
+                                    roz.length ? React.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: 3, marginTop: 4, marginLeft: -4 } },
+                                        roz.map(r => React.createElement("span", { key: r.id || r.ad, className: "rz-cip", title: rozetAcik(r.id) }, r.ad))) : null)),
+                            React.createElement("div", { style: { textAlign: "right", fontSize: 13, color: "var(--sol)" } }, k.kupon),
+                            React.createElement("div", { style: { textAlign: "right", fontSize: 13, color: "var(--sol)" } }, (portfoyAcik || k.slug === ben.slug) ? k.portfoy : "–"),
+                            React.createElement("div", { style: { textAlign: "right", fontSize: 16, fontWeight: 700 } }, (portfoyAcik || k.slug === ben.slug) ? k.genel : k.kupon));
+                    })),
+                React.createElement("div", { className: "kp-kat" },
+                    React.createElement("div", { className: "kp-et" }, "Hafta hafta"),
+                    (!tablo || tablo.haftalar.length === 0) ? (React.createElement("div", { style: { fontSize: 13.5, color: "var(--sol)" } }, "Hen\u00FCz kapanm\u0131\u015F hafta yok.")) : [...tablo.haftalar].reverse().map((h) => {
+                        const idx = tablo.haftalar.indexOf(h);
+                        const acik = acikHafta === idx;
+                        const rezMac = acik ? rezaletListesi(h) : [];
+                        return (React.createElement("div", { key: h.no, style: { borderBottom: "1px solid var(--cizgi)" } },
+                            React.createElement("div", { onClick: () => setAcikHafta(acik ? null : idx), role: "button", tabIndex: 0, onKeyDown: e => e.key === "Enter" && setAcikHafta(acik ? null : idx), className: "kp-haftabas", style: { display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 } },
+                                React.createElement("div", null,
+                                    React.createElement("div", { style: { fontSize: 14, fontWeight: 600 } },
+                                        h.no,
+                                        ". hafta"),
+                                    React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 5, marginTop: 6 } },
+                                        haftaOdul(h).filter(x => x.unvan).map(x => React.createElement("div", { key: x.slug, style: { display: "flex", alignItems: "center", gap: 8 } },
+                                            React.createElement(Yuz, { isim: x.isim, boy: 30, vurgu: x.unvan === "alim" }),
+                                            React.createElement("span", { className: "kp-unvan " + (x.unvan === "alim" ? "iyi" : "kotu") },
+                                                x.unvan === "alim" ? "AL\u0130M ULEMA" : "B\u0130DON D'OR"),
+                                            x.patlican && React.createElement("img", { src: PATLICAN_GORSEL, alt: "patl\u0131can \u00f6d\u00fcl\u00fc", className: "kp-patlican" }),
+                                            x.bankoBonus && React.createElement("span", { className: "kp-banko2x" }, "\u00D72 BANKO"),
+                                            React.createElement("span", { style: { flex: 1 } }),
+                                            React.createElement("span", { className: "kp-para " + (x.unvan === "alim" ? "iyi" : "kotu") }, paraYaz(x.odul)))))),
+                                React.createElement("div", { className: "kp-ac" + (acik ? " acik" : "") }, "▾")),
+                            acik && (React.createElement("div", { style: { paddingBottom: 14 } },
+                                (duzeltHafta && duzeltHafta.idx === idx) ? React.createElement("div", { style: { background: "var(--kat)", border: "1px solid var(--banko)", borderRadius: 10, padding: "12px", marginBottom: 10 } },
+                                    React.createElement("div", { className: "kp-mono", style: { fontSize: 10, color: "var(--banko)", letterSpacing: ".08em", marginBottom: 4 } }, "SKORU D\u00dcZELT"),
+                                    React.createElement("div", { style: { fontSize: 12, color: "var(--sol)", marginBottom: 11, lineHeight: 1.5 } },
+                                        "Skoru de\u011Fi\u015Ftirince o haftan\u0131n puanlar\u0131, klasman ve lig tablosu ba\u015Ftan hesaplan\u0131r."),
+                                    h.maclar.map((m, i) => React.createElement("div", { key: i, style: { display: "grid", gridTemplateColumns: "1fr 46px 10px 46px 1fr", gap: 5, alignItems: "center", marginBottom: 7 } },
+                                        React.createElement("span", { className: "kp-mono", style: { fontSize: 11.5, textAlign: "right", color: "var(--fg)" } }, T(m.e).kod),
+                                        React.createElement("input", { type: "number", inputMode: "numeric", min: 0, max: 20, value: duzeltHafta.s[i][0] === null ? "" : duzeltHafta.s[i][0],
+                                            onChange: e => { const v = e.target.value; const y = duzeltHafta.s.map(x => [...x]); y[i][0] = v === "" ? null : +v; setDuzeltHafta({ idx, s: y }); },
+                                            style: { textAlign: "center", padding: "7px 2px" } }),
+                                        React.createElement("span", { style: { textAlign: "center", color: "var(--sol)" } }, ":"),
+                                        React.createElement("input", { type: "number", inputMode: "numeric", min: 0, max: 20, value: duzeltHafta.s[i][1] === null ? "" : duzeltHafta.s[i][1],
+                                            onChange: e => { const v = e.target.value; const y = duzeltHafta.s.map(x => [...x]); y[i][1] = v === "" ? null : +v; setDuzeltHafta({ idx, s: y }); },
+                                            style: { textAlign: "center", padding: "7px 2px" } }),
+                                        React.createElement("span", { className: "kp-mono", style: { fontSize: 11.5, color: "var(--fg)" } }, T(m.d).kod))),
+                                    React.createElement("label",{className:"pr-label"},"Düzeltme nedeni",React.createElement("input",{className:"kp-gir",value:duzeltNeden,maxLength:200,onChange:e=>setDuzeltNeden(e.target.value),placeholder:"Örn. Ev sahibi skoru yanlış girilmiş"})),
+                                    React.createElement("button", { className: "kp-dg", style: { marginTop: 6 }, disabled: mesgul, onClick: () => guvenliIslem(() => haftaSkorDuzelt(idx, duzeltHafta.s)) }, mesgul ? "Hesaplan\u0131yor\u2026" : "Kaydet ve yeniden hesapla"),
+                                    React.createElement("button", { className: "kp-dg2", style: { width: "100%", marginTop: 7 }, onClick: () => setDuzeltHafta(null) }, "Vazge\u00e7"))
+                                : (kurucuMu ? React.createElement("button", { className: "kp-dg2", style: { width: "100%", marginBottom: 10 }, onClick: () => {setDuzeltNeden("");setDuzeltHafta({ idx, s: h.sonuclar.map(x => [...x]) });} }, "Skoru d\u00fczelt") : null),
+                                React.createElement("div", { style: { background: "var(--kat)", borderRadius: 10, padding: "10px 12px", marginBottom: 10 } },
+                                    React.createElement("div", { className: "kp-mono", style: { fontSize: 10, color: "var(--sol)", letterSpacing: ".08em", marginBottom: 8 } }, "HAFTANIN KASASI"),
+                                    haftaOdul(h).map(x => React.createElement("div", { key: x.slug, className: "kp-sira", style: { borderTop: "1px solid var(--cizgi)" } },
+                                        React.createElement("span", { className: "kp-mono", style: { fontSize: 12, color: "var(--sol)", width: 18, flexShrink: 0 } }, x.sira + "."),
+                                        React.createElement(Yuz, { isim: x.isim, boy: 30, vurgu: x.unvan === "alim" }),
+                                        React.createElement("span", { style: { display: "flex", flexDirection: "column", gap: 3, minWidth: 0, flex: 1 } },
+                                            React.createElement("span", { style: { fontSize: 13.5, color: "var(--fg)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } },
+                                                x.isim,
+                                                x.esit && React.createElement("span", { style: { fontSize: 10, color: "var(--sol)", marginLeft: 6 } }, "e\u015Fit")),
+                                            x.unvan && React.createElement("span", { style: { display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" } },
+                                                React.createElement("span", { className: "kp-unvan " + (x.unvan === "alim" ? "iyi" : "kotu") },
+                                                    x.unvan === "alim" ? "AL\u0130M ULEMA" : "B\u0130DON D'OR"),
+                                                x.patlican && React.createElement("img", { src: PATLICAN_GORSEL, alt: "patl\u0131can \u00f6d\u00fcl\u00fc", className: "kp-patlican" }),
+                                                x.bankoBonus && React.createElement("span", { className: "kp-banko2x" }, "\u00D72 BANKO"))),
+                                        React.createElement("span", { className: "kp-mono", style: { fontSize: 12, color: "var(--sol)", marginRight: 10, whiteSpace: "nowrap" } }, x.puan + "p"),
+                                        React.createElement("span", { className: "kp-para " + (x.unvan === "alim" ? "iyi" : x.unvan === "dallama" ? "kotu" : "") }, paraYaz(x.odul))))),
+                                h.maclar.map((m, i) => (React.createElement("div", { key: i, className: "kp-mono", style: { fontSize: 12, padding: "6px 0", borderTop: "1px dotted var(--cizgi)" } },
+                                    React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 54px 1fr", gap: 6, alignItems: "center", marginBottom: 5 } },
+                                        React.createElement("div", { style: { textAlign: "right", color: "var(--fg)" } }, T(m.e).kod),
+                                        React.createElement("div", { style: { textAlign: "center", fontWeight: 700, fontSize: 14, color: "var(--yesil)" } },
+                                            h.sonuclar[i][0],
+                                            " : ",
+                                            h.sonuclar[i][1]),
+                                        React.createElement("div", { style: { color: "var(--fg)" } }, T(m.d).kod)),
+                                    h.oranlar && h.oranlar[i] ? React.createElement("div", { className: "ol-oran", style: { marginBottom: 4 } },
+                                        h.oranlar[i].ev + "% ev · " + h.oranlar[i].ber + "% ber · " + h.oranlar[i].dep + "% dep") : null,
+                                    (function () {
+                                        const tk = tekBilen(h, i);
+                                        return tk ? React.createElement("div", { style: { textAlign: "center", marginBottom: 6 } },
+                                            React.createElement("span", { className: "tk-roz" }, "TEK B\u0130LEN \u00b7 " + tk)) : null;
+                                    })(),
+                                    React.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: 5, justifyContent: "center" } }, Object.entries(h.tahminler || {}).map(([s, tah]) => {
+                                        var _a, _b, _c, _d, _e;
+                                        const p = (_c = (_b = (_a = h.detay) === null || _a === void 0 ? void 0 : _a[s]) === null || _b === void 0 ? void 0 : _b[i]) !== null && _c !== void 0 ? _c : 0;
+                                        const rz = rezMac.some(z => z.slug === s && z.i === i);
+                                        return (React.createElement("span", { key: s, className: rz ? "kp-rz-cip" : "", style: { fontSize: 10, padding: "3px 6px", borderRadius: 2, background: rz ? "transparent" : p >= 5 ? "rgba(47,191,113,.28)" : p > 0 ? "var(--cizgi)" : "transparent", border: `1px solid ${rz ? "var(--kirmizi)" : p >= 5 ? "var(--yesil)" : "var(--cizgi)"}`, color: rz ? "var(--kirmizi)" : p > 0 ? "var(--fg)" : "var(--sol)" } },
+                                            (((_d = h.isimler) === null || _d === void 0 ? void 0 : _d[s]) || s).slice(0, 4),
+                                            " ",
+                                            tah[i][0],
+                                            "-",
+                                            tah[i][1],
+                                            ((_e = h.jokerler) === null || _e === void 0 ? void 0 : _e[s]) === i ? " ★" : "",
+                                            " ",
+                                            React.createElement("b", { style: { color: rz ? "var(--kirmizi)" : p > 0 ? "var(--yesil)" : "var(--sol)" } }, p),
+                                            rz ? React.createElement("span", { className: "kp-rz-muhur", style: { marginLeft: 4, fontSize: 8, padding: "2px 4px" } }, RZ_MUHUR) : null));
+                                    }))))),
+                                h.kartlar && Object.keys(h.kartlar).length ? React.createElement("div", { style: { background: "var(--kat)", borderRadius: 10, padding: "10px 12px", margin: "10px 0" } },
+                                    React.createElement("div", { className: "kp-mono", style: { fontSize: 10, color: "var(--sol)", letterSpacing: ".08em", marginBottom: 8 } }, "OLAY KARTLARI"),
+                                    Object.keys(h.isimler || h.kartlar).map(s => {
+                                        const kart = (h.kartlar || {})[s];
+                                        const kp = (h.kartPuan && h.kartPuan[s] != null) ? h.kartPuan[s] : kartPuan(kart, h.sonuclar, h.oranlar);
+                                        const ad = (h.isimler && h.isimler[s]) || s;
+                                        if (!kart) return React.createElement("div", { key: s, className: "cr-sat" },
+                                            React.createElement("span", null, ad),
+                                            React.createElement("span", { style: { color: "var(--sol)" } }, "kart yok"));
+                                        const m = h.maclar[kart.mac];
+                                        return React.createElement("div", { key: s, className: "cr-sat" },
+                                            React.createElement("span", null, ad + " · " + kartEtiket(kart.tur)),
+                                            React.createElement("span", { className: "kp-mono" },
+                                                m ? T(m.e).kod + "–" + T(m.d).kod : "?",
+                                                " ",
+                                                React.createElement("b", { style: { color: kp > 0 ? "var(--yesil)" : "var(--sol)" } }, kp > 0 ? "+" + kp : "0")));
+                                    }),
+                                    (function () {
+                                        const s = haftaninSurprizi(h.sonuclar, h.oranlar);
+                                        if (s == null) return React.createElement("div", { style: { fontSize: 12, color: "var(--sol)", marginTop: 8 } }, "Bu hafta sürpriz yok.");
+                                        const m = h.maclar[s];
+                                        return React.createElement("div", { style: { fontSize: 12, color: "var(--sol)", marginTop: 8 } },
+                                            "Haftanın sürprizi: " + T(m.e).kod + "–" + T(m.d).kod + " (" + gercekYuzde(h.oranlar && h.oranlar[s], h.sonuclar[s]) + "%)");
+                                    })()) : null,
+                                React.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: 6, marginTop: 12, paddingTop: 10, borderTop: "1px solid var(--cizgi)" } }, Object.entries(h.puanlar).sort((a, b) => b[1] - a[1]).map(([s, p]) => {
+                                    var _a;
+                                    const kp = (h.kartPuan && h.kartPuan[s]) || 0;
+                                    return (React.createElement("span", { key: s, className: "kp-mono", style: { fontSize: 12, padding: "5px 9px", borderRadius: 3, background: "var(--kat2)", border: "1px solid var(--cizgi)" } },
+                                        ((_a = h.isimler) === null || _a === void 0 ? void 0 : _a[s]) || s,
+                                        " ",
+                                        React.createElement("b", { style: { color: "var(--yesil)" } }, p),
+                                        kp > 0 ? React.createElement("span", { style: { color: "var(--sol)", fontSize: 10 } }, " · kart +" + kp) : null));
+                                }))))));
+                    })))),
+            sekme === "magaza" && magazaGorunumu(),
+            sekme === "ayakta" && ayaktaGorunumu(),
+            sekme === "portfoy" && (React.createElement(React.Fragment, null,
+                transferGorunumu(),
+                !portfoyAcik && (React.createElement("div", { className: "kp-kat", style: { borderColor: "var(--banko)", background: "rgba(245,165,36,.07)" } },
+                    React.createElement("div", { className: "kp-et", style: { color: "var(--banko)" } }, "K\u00F6r se\u00E7im \u00B7 portf\u00F6yler kapal\u0131"),
+                    React.createElement("div", { style: { fontSize: 13.5, lineHeight: 1.7, marginBottom: 14 } }, "Kimse birbirinin portf\u00F6y\u00FCn\u00FC g\u00F6remiyor. Kay\u0131tl\u0131 herkes portf\u00F6y\u00FCn\u00FC kilitleyince hepsi ayn\u0131 anda a\u00E7\u0131lacak."),
+                    React.createElement("div", { className: "kp-mono", style: { fontSize: 12, marginBottom: 10, color: "var(--sol)" } },
+                        kilitleyen, "/", beklenenOyuncu,
+                        " kilitledi"),
+                    oyuncular.map(o => (React.createElement("div", { key: o.slug, style: { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", fontSize: 13.5, borderTop: "1px solid var(--cizgi)" } },
+                        React.createElement("span", { style: { display: "flex", alignItems: "center", gap: 10, color: o.slug === ben.slug ? "var(--yesil)" : "var(--fg)", opacity: portfoy[o.slug] ? 1 : .55 } },
+                            React.createElement(Yuz, { isim: o.isim, boy: 40, vurgu: !!portfoy[o.slug] }),
+                            o.isim),
+                        React.createElement("span", { className: "kp-mono", style: { fontSize: 12, color: portfoy[o.slug] ? "var(--yesil)" : "var(--sol)" } }, portfoy[o.slug] ? "kilitledi" : "bekleniyor")))),
+                    toplamOyuncu < 2 && (React.createElement("div", { style: { fontSize: 12, color: "var(--sol)", marginTop: 12, lineHeight: 1.6 } },
+                        "Gruba hen\u00FCz ba\u015Fka kimse kat\u0131lmad\u0131. Arkada\u015Flar\u0131n ",
+                        React.createElement("strong", { className: "kp-mono", style: { color: "var(--yesil)" } }, lig),
+                        " koduyla girsin.")),
+                    React.createElement("button", { className: "kp-dg2", style: { width: "100%", marginTop: 14 }, onClick: () => veriYukle(lig, ben.slug) }, "Yenile"))),
+                oyuncular.filter(o => portfoyAcik || o.slug === ben.slug).map(o => {
+                    const p = portfoy[o.slug];
+                    if (!p)
+                        return (React.createElement("div", { key: o.slug, className: "kp-kat" },
+                            React.createElement("div", { style: { fontSize: 15, fontWeight: 600 } }, o.isim),
+                            React.createElement("div", { style: { fontSize: 13, color: "var(--sol)", marginTop: 6 } }, "Hen\u00FCz portf\u00F6y kurmad\u0131.")));
+                    return (React.createElement("div", { key: o.slug, className: "kp-kat", style: { borderColor: o.slug === ben.slug ? "var(--yesil)" : "var(--cizgi)" } },
+                        React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 } },
+                            React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 10 } },
+                                React.createElement(Yuz, { isim: o.isim, boy: 48, vurgu: o.slug === ben.slug }),
+                                React.createElement("span", { style: { fontSize: 16, fontWeight: 700, color: o.slug === ben.slug ? "var(--yesil)" : "var(--fg)" } }, o.isim)),
+                            React.createElement("div", { className: "kp-mono", style: { fontSize: 19, fontWeight: 700 } }, portfoyPuan(o.slug))),
+                        p.takimlar.map(i => (React.createElement("div", { key: i, className: "kp-mono", style: { display: "grid", gridTemplateColumns: "42px 1fr 34px 34px", gap: 8, alignItems: "center", padding: "8px 0", borderTop: "1px solid var(--cizgi)", fontSize: 12.5 } },
+                            React.createElement("div", { style: { color: "var(--sol)", fontWeight: 600 } }, T(i).kod),
+                            React.createElement("div", { style: { fontFamily: "Figtree,sans-serif", fontSize: 13.5 } },
+                                T(i).ad,
+                                sahipSayisi(i) === 1 && React.createElement("span", { style: { color: "var(--yesil)", fontSize: 10, marginLeft: 6, fontWeight: 700 } },
+                                    "x",
+                                    TEK_SAHIP_CARPAN)),
+                            React.createElement("div", { style: { textAlign: "right", color: "var(--sol)" } },
+                                fiyat(T(i)),
+                                "k"),
+                            React.createElement("div", { style: { textAlign: "right", fontWeight: 700, color: "var(--yesil)" } }, takimKatki(i))))),
+                        React.createElement("div", { className: "kp-mono", style: { fontSize: 10.5, color: "var(--sol)", marginTop: 9 } },
+                            p.harcanan,
+                            "/",
+                            KREDI,
+                            " kredi harcand\u0131 \u00B7 puan kayna\u011F\u0131: ",
+                            resmi ? "resmi tablo" : "kupon sonuçları"),
+                        p.transfer ? React.createElement("div", { className: "kp-mono", style: { fontSize: 11, color: "var(--sol)", marginTop: 6 } },
+                            "Devre arası: " + T(p.transfer.sat).kod + " → " + T(p.transfer.al).kod) : null));
+                }))),
+            sekme === "lig" && (React.createElement("div", { className: "kp-kat", style: { padding: "12px 8px" } },
+                React.createElement("div", { className: "kp-et", style: { padding: "0 6px" } },
+                    "Lig tablosu \u2014 girilen kupon sonu\u00E7lar\u0131ndan",
+                    resmi ? " (portföy resmi puanları kullanıyor)" : ""),
+                ligSirali.length === 0 ? (React.createElement("div", { style: { fontSize: 13.5, color: "var(--sol)", padding: "0 6px" } }, "Hen\u00FCz sonu\u00E7 girilmedi.")) : (React.createElement(React.Fragment, null,
+                    React.createElement("div", { className: "kp-mono", style: { display: "grid", gridTemplateColumns: "20px 1fr 24px 24px 24px 24px 32px 28px", gap: 4, fontSize: 9.5, color: "var(--sol)", padding: "0 6px 8px", borderBottom: "1px solid var(--cizgi)" } },
+                        React.createElement("div", null, "#"),
+                        React.createElement("div", null, "TAKIM"),
+                        React.createElement("div", { style: { textAlign: "center" } }, "O"),
+                        React.createElement("div", { style: { textAlign: "center" } }, "G"),
+                        React.createElement("div", { style: { textAlign: "center" } }, "B"),
+                        React.createElement("div", { style: { textAlign: "center" } }, "M"),
+                        React.createElement("div", { style: { textAlign: "center" } }, "AV"),
+                        React.createElement("div", { style: { textAlign: "right" } }, "P")),
+                    ligSirali.map((s, i) => {
+                        var _a;
+                        const sahip = portfoyAcik
+                            ? Object.entries(portfoy).filter(([, p]) => p.takimlar.includes(s.i)).map(([sl]) => { var _a; return ((_a = oyuncular.find(o => o.slug === sl)) === null || _a === void 0 ? void 0 : _a.isim) || sl; })
+                            : (((_a = portfoy[ben.slug]) === null || _a === void 0 ? void 0 : _a.takimlar.includes(s.i)) ? [ben.isim] : []);
+                        return (React.createElement("div", { key: s.i, className: "kp-mono", style: { display: "grid", gridTemplateColumns: "20px 1fr 24px 24px 24px 24px 32px 28px", gap: 4, alignItems: "center", padding: "9px 6px", borderBottom: "1px solid var(--cizgi)", fontSize: 12 } },
+                            React.createElement("div", { style: { color: "var(--sol)" } }, i + 1),
+                            React.createElement("div", { style: { fontFamily: "Figtree,sans-serif", fontSize: 12.5, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } },
+                                T(s.i).ad,
+                                sahip.length > 0 && React.createElement("span", { style: { color: "var(--yesil)", fontSize: 10.5 } },
+                                    " \u00B7 ",
+                                    sahip.join(", "))),
+                            React.createElement("div", { style: { textAlign: "center", color: "var(--sol)" } }, s.o),
+                            React.createElement("div", { style: { textAlign: "center", color: "var(--sol)" } }, s.g),
+                            React.createElement("div", { style: { textAlign: "center", color: "var(--sol)" } }, s.b),
+                            React.createElement("div", { style: { textAlign: "center", color: "var(--sol)" } }, s.m),
+                            React.createElement("div", { style: { textAlign: "center", color: "var(--sol)" } },
+                                s.av > 0 ? "+" : "",
+                                s.av),
+                            React.createElement("div", { style: { textAlign: "right", fontWeight: 700 } }, s.p)));
+                    }))),
+                React.createElement("div", { style: { fontSize: 11, color: "var(--sol)", marginTop: 14, padding: "0 6px", lineHeight: 1.6 } }, "Bu tablo sadece kupona koydu\u011Funuz ma\u00E7lardan olu\u015Fuyor. Bir haftan\u0131n t\u00FCm ma\u00E7lar\u0131n\u0131 eklemezseniz eksik kal\u0131r."),
+                React.createElement("div", { style: { borderTop: "1px solid var(--cizgi)", marginTop: 16, paddingTop: 16 } },
+                    React.createElement("div", { className: "kp-et", style: { padding: "0 6px" } }, "Resmi puanlar"),
+                    kurucuMu && resmiTaslak ? (React.createElement(React.Fragment, null,
+                        React.createElement("div", { style: { fontSize: 12.5, color: "var(--sol)", padding: "0 6px 12px", lineHeight: 1.6 } }, "TFF'nin tablosuna bak\u0131p her tak\u0131m\u0131n puan\u0131n\u0131 yaz. Bo\u015F b\u0131rakt\u0131\u011F\u0131n tak\u0131m i\u00E7in kupon sonu\u00E7lar\u0131 kullan\u0131lmaya devam eder."),
+                        takimlar.map((t, i) => {
+                            var _a, _b, _c;
+                            return (React.createElement("div", { key: i, style: { display: "grid", gridTemplateColumns: "42px 1fr 62px", gap: 8, alignItems: "center", padding: "6px 6px" } },
+                                React.createElement("div", { className: "kp-mono", style: { fontSize: 12, color: "var(--sol)", fontWeight: 600 } }, t.kod),
+                                React.createElement("div", { style: { fontSize: 13.5 } }, t.ad),
+                                React.createElement("input", { inputMode: "numeric", className: "kp-gir kp-mono", style: { padding: "8px 0", textAlign: "center", fontSize: 14 }, value: (_a = resmiTaslak[i]) !== null && _a !== void 0 ? _a : "", placeholder: String((_c = (_b = tablo === null || tablo === void 0 ? void 0 : tablo.ligTablo[i]) === null || _b === void 0 ? void 0 : _b.p) !== null && _c !== void 0 ? _c : 0), onChange: e => setResmiTaslak({ ...resmiTaslak, [i]: e.target.value.replace(/\D/g, "").slice(0, 3) }) })));
+                        }),
+                        React.createElement("button", { className: "kp-dg", style: { marginTop: 14 }, onClick: () => guvenliIslem(resmiKaydet) }, "Resmi puanlar\u0131 kaydet"),
+                        React.createElement("button", { className: "kp-dg2", style: { width: "100%", marginTop: 8 }, onClick: () => setResmiTaslak(null) }, "Vazge\u00E7"))) : resmi ? (React.createElement(React.Fragment, null,
+                        React.createElement("div", { style: { fontSize: 12.5, color: "var(--sol)", padding: "0 6px 12px", lineHeight: 1.6 } },
+                            "Portf\u00F6y puanlar\u0131 resmi tablodan hesaplan\u0131yor. Son g\u00FCncelleyen: ",
+                            React.createElement("strong", { style: { color: "var(--fg)" } }, resmi.guncelleyen),
+                            " \u00B7 ",
+                            new Date(resmi.zaman).toLocaleDateString("tr-TR")),
+                        takimlar.map((t, i) => {
+                            var _a, _b, _c;
+                            const r = (_a = resmi.puanlar) === null || _a === void 0 ? void 0 : _a[i];
+                            if (r === undefined)
+                                return null;
+                            const k = (_c = (_b = tablo === null || tablo === void 0 ? void 0 : tablo.ligTablo[i]) === null || _b === void 0 ? void 0 : _b.p) !== null && _c !== void 0 ? _c : 0;
+                            return (React.createElement("div", { key: i, className: "kp-mono", style: { display: "grid", gridTemplateColumns: "42px 1fr 46px 46px", gap: 8, alignItems: "center", padding: "7px 6px", borderTop: "1px solid var(--cizgi)", fontSize: 12.5 } },
+                                React.createElement("div", { style: { color: "var(--sol)", fontWeight: 600 } }, t.kod),
+                                React.createElement("div", { style: { fontFamily: "Figtree,sans-serif", fontSize: 13 } }, t.ad),
+                                React.createElement("div", { style: { textAlign: "right", color: r !== k ? "var(--kirmizi)" : "var(--sol)" } }, k),
+                                React.createElement("div", { style: { textAlign: "right", fontWeight: 700, color: "var(--yesil)" } }, r)));
+                        }),
+                        React.createElement("div", { className: "kp-mono", style: { fontSize: 10, color: "var(--sol)", padding: "10px 6px 0", display: "flex", justifyContent: "flex-end", gap: 12 } },
+                            React.createElement("span", null, "KUPONDAN"),
+                            React.createElement("span", { style: { color: "var(--yesil)" } }, "RESM\u0130")),
+                        React.createElement("button", { className: "kp-dg2", style: { width: "100%", marginTop: 14 }, disabled: !kurucuMu || mesgul, onClick: () => setResmiTaslak({ ...resmi.puanlar }) }, "Puanlar\u0131 g\u00FCncelle"),
+                        React.createElement("button", { className: "kp-dg2", style: { width: "100%", marginTop: 8 }, disabled: !kurucuMu || mesgul, onClick: () => guvenliIslem(resmiSil) }, "Resmi puanlar\u0131 sil"))) : (React.createElement(React.Fragment, null,
+                        React.createElement("div", { style: { fontSize: 12.5, color: "var(--sol)", padding: "0 6px 12px", lineHeight: 1.6 } }, "Erteleme ma\u00E7lar\u0131 ve atlanan haftalar y\u00FCz\u00FCnden yukar\u0131daki tablo ger\u00E7ek puanlardan sapabilir. Ayda bir TFF'nin tablosuna bak\u0131p 18 tak\u0131m\u0131n puan\u0131n\u0131 buraya yaz\u0131n \u2014 portf\u00F6y puanlar\u0131 o andan itibaren buradan hesaplan\u0131r. Kupon puanlar\u0131 etkilenmez."),
+                        React.createElement("button", { className: "kp-dg2", style: { width: "100%" }, disabled: !kurucuMu || mesgul, onClick: () => setResmiTaslak({}) }, "Resmi puanlar\u0131 gir")))),
+                React.createElement("button", { className: "kp-dg2", style: { width: "100%", marginTop: 20 }, onClick: () => { setEkran("giris"); setBen(null); setKurulum(null); setAktif(null); setTablo(null); setResmi(null); setMagaza(MAGAZA_BOS); setSatinOnay(null); setZekatMiktar(""); setZekatOnay(false); setErzakOnay(false); setAnket({}); setMansetKapali(false); setTransfer(null); setTrSat(null); setTrAl(null); setTrOnay(false); setAyakta(AYAKTA_BOS); setAySec(null); setAyGirisOnay(false); setAySecOnay(false); } }, "Ba\u015Fka gruba ge\u00E7")))),
+        React.createElement("div", { className: "kp-surum", style: { textAlign: "center", padding: "8px 0 6px", fontSize: 10.5, color: "var(--sol)", fontFamily: "'JetBrains Mono',monospace", flexShrink: 0 } }, "sürüm " + SURUM)),
+        React.createElement("nav", { className: "kp-alt", "aria-label": "Bölümler" }, [["merkez", "Çatışma"], ["kupon", "Kupon"], ["ayakta", "RULET"], ["klasman", "Klasman"], ["magaza", "Mağaza"], ["portfoy", "Portföy"], ["lig", "Lig"]].map(([k, l]) => (React.createElement("button", { key: k, className: sekme === k ? "on" : "", onClick: () => setSekme(k) }, l))))));
+}
+
