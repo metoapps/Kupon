@@ -267,7 +267,35 @@ const MILLI_ETKINLIKLER = {
             },
         ],
     },
+    "milli-ara-kasim-2026": {
+        seriesId: MILLI_SERIES_ID, ad: "Milli Ara · Kasım 2026", evre: "kasim",
+        /* Gerçek Kasım fikstürü doğrulanınca burada doldurulacak. Maç uydurmamak
+           için etkinlik şimdilik başlatılabilir değildir. */
+        hazir: false, haftalar: [],
+    },
 };
+const MILLI_BOS = { eventId: null, seriesId: MILLI_SERIES_ID, sampiyon: null, haftalar: [] };
+/* Eski tek-etkinlik kaydını bozmadan, bundan sonra etkinlikleri arşivleyen paket. */
+function milliPaketNorm(v) {
+    if (v && v.events && typeof v.events === "object") {
+        return { schema: 2, activeEventId: v.activeEventId || null, events: v.events };
+    }
+    if (v && v.eventId) return { schema: 2, activeEventId: v.eventId, events: { [v.eventId]: v } };
+    return { schema: 2, activeEventId: null, events: {} };
+}
+function milliAktifPaket(paket) {
+    const id = paket && paket.activeEventId;
+    return id && paket.events && paket.events[id] ? paket.events[id] : MILLI_BOS;
+}
+    function milliSkorlariDogrula(sonuclar, maclar) {
+        if (!Array.isArray(sonuclar) || sonuclar.length !== (maclar || []).length) throw new Error("Bütün milli maçların sonucu girilmeli.");
+        return sonuclar.map(function (s) {
+        if (!Array.isArray(s) || s.length !== 2 || s[0] === "" || s[1] === "" || s[0] == null || s[1] == null || !Number.isInteger(+s[0]) || !Number.isInteger(+s[1]) || +s[0] < 0 || +s[1] < 0 || +s[0] > 30 || +s[1] > 30) {
+            throw new Error("Skorlar 0–30 arasında tam sayı olmalı.");
+        }
+        return [+s[0], +s[1]];
+    });
+}
 function milliHaftaTurkiyeMaci(hafta) {
     const i = hafta.maclar.findIndex(function (m) { return m[0] === "Türkiye" || m[1] === "Türkiye"; });
     return i < 0 ? null : i;
@@ -903,12 +931,16 @@ function Kupon() {
     const [trAl, setTrAl] = useState(null);
     const [trOnay, setTrOnay] = useState(false);
     const [ayakta, setAyakta] = useState(AYAKTA_BOS);
-    const [milliData, setMilliData] = useState({ haftalar: [], sampiyon: null });
+    const [milliArsiv, setMilliArsiv] = useState({ schema: 2, activeEventId: null, events: {} });
+    const [milliData, setMilliData] = useState(MILLI_BOS);
     const [milliSecim, setMilliSecim] = useState({});
+    const [milliJoker, setMilliJoker] = useState(null);
     const [milliGolcu, setMilliGolcu] = useState("");
     const [milliSonucGiris, setMilliSonucGiris] = useState({});
     const [milliGolcuOnay, setMilliGolcuOnay] = useState({});
     const [milliDeadlineGiris, setMilliDeadlineGiris] = useState("");
+    const [milliDuzeltIdx, setMilliDuzeltIdx] = useState(null);
+    const [milliDuzeltGiris, setMilliDuzeltGiris] = useState({});
     const [aySec, setAySec] = useState(null);
     const [ayGirisOnay, setAyGirisOnay] = useState(false);
     const [aySecOnay, setAySecOnay] = useState(false);
@@ -1307,7 +1339,9 @@ function Kupon() {
         setAnket(okuJSON(an === null || an === void 0 ? void 0 : an.value, {}) || {});
         setTransfer(okuJSON(tr === null || tr === void 0 ? void 0 : tr.value, null));
         setAyakta(ayaktaNorm(okuJSON(ay === null || ay === void 0 ? void 0 : ay.value, AYAKTA_BOS)));
-        setMilliData(okuJSON(mi === null || mi === void 0 ? void 0 : mi.value, { haftalar: [], sampiyon: null }) || { haftalar: [], sampiyon: null });
+        const milliPaket = milliPaketNorm(okuJSON(mi === null || mi === void 0 ? void 0 : mi.value, null));
+        setMilliArsiv(milliPaket);
+        setMilliData(milliAktifPaket(milliPaket));
         if (etkin) await kuponlariYukle(lg, etkin.hafta, benSlug);
         else {setKuponlar({});setBenimKupon(null);}
         return { kur, akt:etkin, tbl, pfy };
@@ -1830,7 +1864,7 @@ function Kupon() {
        aralarında eşit bölüşülür; haftalık dağıtılan toplam sabit kalır. */
     const ODULLER = [500, 250, 150, 75, 1];
     const milliOdul = (h) => {
-        const e = Object.entries((h && h.puanlar) || {});
+        const e = Object.entries(milliToplamPuanlar(h));
         if (!e.length) return [];
         const ad = (sl) => { const o = (kurulum && kurulum.oyuncular || []).find(x => x.slug === sl); return (o && o.isim) || sl; };
         const sirali = e.slice().sort((a, b) => b[1] - a[1]);
@@ -1845,6 +1879,12 @@ function Kupon() {
             for (let d = i; d <= k; d++) cikti.push({ slug: sirali[d][0], isim: ad(sirali[d][0]), puan: sirali[d][1], sira: i + 1, odul: pay, esit: k > i });
             i = k + 1;
         }
+        cikti.forEach(function (x) {
+            if (x.sira !== 1) return;
+            const jk = h.jokerler && h.jokerler[x.slug];
+            const dt = h.detay && h.detay[x.slug];
+            if (jk !== undefined && jk !== null && dt && dt[jk] === 10) { x.odul *= 2; x.bankoBonus = true; }
+        });
         return cikti;
     };
     /* Golcü kartı yalnızca Türkiye maçı için: sabit bonus, doğruysa +3, ayrıca Türkiye kazanırsa +2. */
@@ -1859,6 +1899,36 @@ function Kupon() {
             r[slug] = (g.dogru ? 3 : 0) + (g.dogru && trKazandi ? 2 : 0);
         });
         return r;
+    }
+    /* Haftalar farklı sayıda maç taşıyabilir. Sıralama puanı 0–100'e normalize
+       edilir; böylece çok maçlı hafta otomatik olarak iki kat ağırlık kazanmaz. */
+    function milliToplamPuanlar(h) {
+        const base = (h && h.puanlar) || {};
+        const bonus = milliGolcuPuan(h);
+        const macSayisi = ((h && h.maclar) || []).length;
+        const anahtarlar = new Set(Object.keys(base).concat(Object.keys(bonus)));
+        const out = {};
+        anahtarlar.forEach(function (slug) {
+            const ham = (+base[slug] || 0) + (+bonus[slug] || 0);
+            const bankoVar = h && h.jokerler && h.jokerler[slug] != null;
+            const golcuVar = h && h.golcu && h.golcu[slug] != null;
+            const azami = Math.max(1, macSayisi * 5 + (bankoVar ? 5 : 0) + (macSayisi >= 5 ? 5 : 0) + (golcuVar ? 5 : 0));
+            out[slug] = Math.round((ham / azami) * 1000) / 10;
+        });
+        return out;
+    }
+    function milliSampiyonBul(events) {
+        const toplam = {}, tam = {};
+        (events || []).forEach(function (e) {
+            (e.haftalar || []).forEach(function (w) {
+                if (!w.sonuclar) return;
+                Object.entries(milliToplamPuanlar(w)).forEach(function (x) { toplam[x[0]] = (toplam[x[0]] || 0) + x[1]; });
+                Object.entries(w.detay || {}).forEach(function (x) { tam[x[0]] = (tam[x[0]] || 0) + (x[1] || []).filter(function (p) { return p >= 5; }).length; });
+            });
+        });
+        const sirali = Object.keys(toplam).map(function (slug) { return { slug: slug, puan: toplam[slug], tam: tam[slug] || 0 }; })
+            .sort(function (a, b) { return b.puan - a.puan || b.tam - a.tam || a.slug.localeCompare(b.slug); });
+        return sirali.length ? sirali[0].slug : null;
     }
     const haftaOdul = (h) => {
         const e = Object.entries((h && h.puanlar) || {});
@@ -2049,91 +2119,136 @@ function Kupon() {
         if (!h) return 0;
         return haftaOdul(h).some(function (x) { return x.unvan === "dallama" && x.slug === kayit.slug; }) ? SIGORTA_ODEME : 0;
     }
-    /* Milli ara toplam kazancı: kapalı haftaların ödülü + tam katılım primi + şampiyon bonusu.
-       Hiçbir şey ayrı bir "settlement" olarak yazılmaz — nakitHesap gibi her seferinde
-       milliData'dan yeniden türetilir, çift ödeme riski yapısal olarak yok. */
+    /* Milli ara kazancı her arşivlenmiş etkinlikten yeniden türetilir. */
     function milliOdulToplam(slug) {
-        const haftalar = (milliData && milliData.haftalar) || [];
-        if (!haftalar.length) return 0;
-        let toplam = 0, katildi = true, hepsiKapali = true;
-        haftalar.forEach(function (h) {
-            if (!h.sonuclar) { hepsiKapali = false; katildi = false; return; }
-            const odul = milliOdul(h).find(function (x) { return x.slug === slug; });
-            if (odul) toplam += odul.odul;
-            if (!(h.tahminler && h.tahminler[slug])) katildi = false;
+        let toplam = 0;
+        Object.values((milliArsiv && milliArsiv.events) || {}).forEach(function (etkinlik) {
+            if (etkinlik.seriesId && etkinlik.seriesId !== MILLI_SERIES_ID) return;
+            const haftalar = etkinlik.haftalar || [];
+            if (!haftalar.length) return;
+            let katildi = true, hepsiKapali = true;
+            haftalar.forEach(function (h) {
+                if (!h.sonuclar) { hepsiKapali = false; katildi = false; return; }
+                const odul = milliOdul(h).find(function (x) { return x.slug === slug; });
+                if (odul) toplam += odul.odul;
+                if (!(h.tahminler && h.tahminler[slug])) katildi = false;
+            });
+            if (hepsiKapali && katildi) toplam += MILLI_KATILIM_PRIMI;
+            if (etkinlik.sampiyon === slug) toplam += MILLI_SAMPIYON_BONUS;
         });
-        if (hepsiKapali && katildi) toplam += MILLI_KATILIM_PRIMI;
-        if (milliData && milliData.sampiyon === slug) toplam += MILLI_SAMPIYON_BONUS;
         return Math.round(toplam * 100) / 100;
+    }
+    function milliPaketDurumu(paket) {
+        setMilliArsiv(paket);
+        setMilliData(milliAktifPaket(paket));
+    }
+    async function milliPaketKaydet(paket, onceki) {
+        await depo.kosulluSet("kpn:" + lig + ":milliara", JSON.stringify(paket), onceki == null ? null : onceki);
+        milliPaketDurumu(paket);
     }
     async function milliEtkinlikBaslat(eventId) {
         kurucuKontrol();
         const zaman = Date.parse(milliDeadlineGiris + ":00+03:00");
-        if (!Number.isFinite(zaman)) throw new Error("Geçerli bir teslim saati gir.");
+        if (!Number.isFinite(zaman) || zaman <= Date.now()) throw new Error("Gelecekte geçerli bir teslim saati gir.");
         const kaynak = MILLI_ETKINLIKLER[eventId];
-        if (!kaynak) throw new Error("Etkinlik bulunamadı.");
+        if (!kaynak || kaynak.hazir === false || !kaynak.haftalar.length) throw new Error("Bu etkinliğin fikstürü henüz hazır değil.");
+        const kayit = await depo.get("kpn:" + lig + ":milliara");
+        const paket = milliPaketNorm(okuJSON(kayit && kayit.value, null));
+        const mevcut = milliAktifPaket(paket);
+        if (mevcut.haftalar && mevcut.haftalar.some(function (h) { return !h.sonuclar; })) throw new Error("Önce açık Milli Ara etkinliğini tamamla.");
+        if (paket.events[eventId]) throw new Error("Bu etkinlik daha önce başlatıldı.");
         const guncel = {
             eventId, seriesId: kaynak.seriesId, sampiyon: null,
             haftalar: kaynak.haftalar.map(function (h, i) {
-                return { no: h.no, tarih: h.tarih, maclar: h.maclar, sonTeslim: i === 0 ? zaman : null, tahminler: {}, golcu: {} };
+                return { no: h.no, tarih: h.tarih, maclar: h.maclar.map(function (m) { return m.slice(); }), sonTeslim: i === 0 ? zaman : null, tahminler: {}, jokerler: {}, golcu: {} };
             }),
         };
-        const onceki = await depo.get("kpn:" + lig + ":milliara");
-        await depo.kosulluSet("kpn:" + lig + ":milliara", JSON.stringify(guncel), onceki ? onceki.value : null);
-        setMilliData(guncel); setMilliDeadlineGiris("");
+        const yeniPaket = { schema: 2, activeEventId: eventId, events: Object.assign({}, paket.events, { [eventId]: guncel }) };
+        await milliPaketKaydet(yeniPaket, kayit ? kayit.value : null);
+        setMilliDeadlineGiris("");
     }
     async function milliHaftaTeslimBelirle(idx) {
         kurucuKontrol();
         const zaman = Date.parse(milliDeadlineGiris + ":00+03:00");
-        if (!Number.isFinite(zaman)) throw new Error("Geçerli bir teslim saati gir.");
-        const guncel = JSON.parse(JSON.stringify(milliData));
+        if (!Number.isFinite(zaman) || zaman <= Date.now()) throw new Error("Gelecekte geçerli bir teslim saati gir.");
+        const kayit = await depo.get("kpn:" + lig + ":milliara");
+        const paket = milliPaketNorm(okuJSON(kayit && kayit.value, null));
+        const guncel = JSON.parse(JSON.stringify(milliAktifPaket(paket)));
+        if (!guncel.haftalar[idx]) throw new Error("Hafta bulunamadı.");
         if (Number.isFinite(guncel.haftalar[idx].sonTeslim)) throw new Error("Bu haftanın teslim saati zaten belirlenmiş.");
+        const onceki = guncel.haftalar.slice(0, idx).map(function (h) { return h.sonTeslim; }).filter(Number.isFinite).pop();
+        if (onceki && zaman <= onceki) throw new Error("Yeni teslim saati önceki haftadan sonra olmalı.");
         guncel.haftalar[idx].sonTeslim = zaman;
-        const onceki = await depo.get("kpn:" + lig + ":milliara");
-        await depo.kosulluSet("kpn:" + lig + ":milliara", JSON.stringify(guncel), onceki ? onceki.value : null);
-        setMilliData(guncel); setMilliDeadlineGiris("");
+        const yeniPaket = { schema: 2, activeEventId: guncel.eventId, events: Object.assign({}, paket.events, { [guncel.eventId]: guncel }) };
+        await milliPaketKaydet(yeniPaket, kayit ? kayit.value : null);
+        setMilliDeadlineGiris("");
     }
     async function milliKuponYaz() {
         if (!ben) throw new Error("Önce giriş yap.");
-        const idx = milliData.haftalar.findIndex(function (h) { return !h.sonuclar; });
-        if (idx < 0) throw new Error("Şu an açık bir milli ara haftası yok.");
-        const h = milliData.haftalar[idx];
-        if (h.tahminler && h.tahminler[ben.slug]) throw new Error("Bu haftayı zaten gönderdin.");
-        if (Number.isFinite(h.sonTeslim) && Date.now() >= h.sonTeslim) throw new Error("Teslim saati geçti.");
-        const secim = h.maclar.map(function (_, i) { return milliSecim[i]; });
-        if (secim.some(function (s) { return !s || s[0] === "" || s[1] === "" || s[0] == null || s[1] == null; })) throw new Error("Tüm maçlara skor gir.");
-        const ti = milliHaftaTurkiyeMaci(h);
-        const guncel = JSON.parse(JSON.stringify(milliData));
-        const hh = guncel.haftalar[idx];
-        hh.tahminler = hh.tahminler || {};
-        hh.tahminler[ben.slug] = secim.map(function (s) { return [+s[0], +s[1]]; });
-        if (ti != null && milliGolcu.trim()) { hh.golcu = hh.golcu || {}; hh.golcu[ben.slug] = { isim: milliGolcu.trim(), dogru: null }; }
-        const onceki = await depo.get("kpn:" + lig + ":milliara");
-        await depo.kosulluSet("kpn:" + lig + ":milliara", JSON.stringify(guncel), onceki ? onceki.value : null);
-        setMilliData(guncel); setMilliSecim({}); setMilliGolcu("");
+        let sonHata = null;
+        for (let deneme = 0; deneme < 3; deneme++) {
+            const kayit = await depo.get("kpn:" + lig + ":milliara");
+            const paket = milliPaketNorm(okuJSON(kayit && kayit.value, null));
+            const guncel = JSON.parse(JSON.stringify(milliAktifPaket(paket)));
+            const idx = guncel.haftalar.findIndex(function (h) { return !h.sonuclar; });
+            if (idx < 0) throw new Error("Şu an açık bir milli ara haftası yok.");
+            const h = guncel.haftalar[idx];
+            if (!Number.isFinite(h.sonTeslim)) throw new Error("Bu haftanın teslim saati henüz belirlenmedi.");
+            if (Date.now() >= h.sonTeslim) throw new Error("Teslim saati geçti.");
+            if (h.tahminler && h.tahminler[ben.slug]) throw new Error("Bu haftayı zaten gönderdin.");
+            const secimler = h.maclar.map(function (_, i) { return milliSecim[i]; });
+            const sk = milliSkorlariDogrula(secimler, h.maclar);
+            if (milliJoker == null || !Number.isInteger(+milliJoker) || +milliJoker < 0 || +milliJoker >= h.maclar.length) throw new Error("Bir banko maçı seç.");
+            h.tahminler = h.tahminler || {};
+            h.tahminler[ben.slug] = sk;
+            h.jokerler = h.jokerler || {};
+            h.jokerler[ben.slug] = +milliJoker;
+            if (milliHaftaTurkiyeMaci(h) != null && milliGolcu.trim()) { h.golcu = h.golcu || {}; h.golcu[ben.slug] = { isim: milliGolcu.trim(), dogru: null }; }
+            const yeniPaket = { schema: 2, activeEventId: guncel.eventId, events: Object.assign({}, paket.events, { [guncel.eventId]: guncel }) };
+            try { await milliPaketKaydet(yeniPaket, kayit ? kayit.value : null); setMilliSecim({}); setMilliJoker(null); setMilliGolcu(""); return; }
+            catch (e) { sonHata = e; if (deneme === 2 || !String(e && e.message).includes("başka bir cihaz")) throw e; }
+        }
+        throw sonHata;
+    }
+    function milliEtkinlikKapat(paket, etkinlik) {
+        if ((etkinlik.haftalar || []).length && etkinlik.haftalar.every(function (h) { return !!h.sonuclar; })) {
+            etkinlik.sampiyon = milliSampiyonBul([etkinlik]);
+        }
+        return paket;
     }
     async function milliHaftaKapat(idx, sonuclar, golcuSonuc) {
         kurucuKontrol();
-        const guncel = JSON.parse(JSON.stringify(milliData));
+        const temizSonuclar = milliSkorlariDogrula(sonuclar, (milliData.haftalar || [])[idx] && milliData.haftalar[idx].maclar);
+        const kayit = await depo.get("kpn:" + lig + ":milliara");
+        const paket = milliPaketNorm(okuJSON(kayit && kayit.value, null));
+        const guncel = JSON.parse(JSON.stringify(milliAktifPaket(paket)));
         const hh = guncel.haftalar[idx];
-        if (hh.sonuclar) throw new Error("Bu hafta zaten kapalı.");
-        hh.sonuclar = sonuclar;
-        const sonuc = haftaPuanla(hh.maclar, sonuclar, hh.tahminler || {}, {});
+        if (!hh || hh.sonuclar) throw new Error("Bu hafta zaten kapalı veya bulunamadı.");
+        hh.sonuclar = temizSonuclar;
+        const sonuc = haftaPuanla(hh.maclar, temizSonuclar, hh.tahminler || {}, hh.jokerler || {});
         hh.puanlar = sonuc.puanlar; hh.detay = sonuc.detay;
-        if (hh.golcu && golcuSonuc) Object.keys(hh.golcu).forEach(function (slug) {
-            if (golcuSonuc[slug] != null) hh.golcu[slug].dogru = !!golcuSonuc[slug];
-        });
-        if (idx === guncel.haftalar.length - 1) {
-            const toplam = {};
-            guncel.haftalar.forEach(function (w) {
-                Object.entries(w.puanlar || {}).forEach(function (e) { toplam[e[0]] = (toplam[e[0]] || 0) + e[1] + (milliGolcuPuan(w)[e[0]] || 0); });
-            });
-            const sirali = Object.entries(toplam).sort(function (a, b) { return b[1] - a[1]; });
-            guncel.sampiyon = sirali.length ? sirali[0][0] : null;
-        }
-        const onceki = await depo.get("kpn:" + lig + ":milliara");
-        await depo.kosulluSet("kpn:" + lig + ":milliara", JSON.stringify(guncel), onceki ? onceki.value : null);
-        setMilliData(guncel);
+        if (hh.golcu && golcuSonuc) Object.keys(hh.golcu).forEach(function (slug) { if (golcuSonuc[slug] != null) hh.golcu[slug].dogru = !!golcuSonuc[slug]; });
+        milliEtkinlikKapat(paket, guncel);
+        paket.events[guncel.eventId] = guncel;
+        await milliPaketKaydet({ schema: 2, activeEventId: guncel.eventId, events: paket.events }, kayit ? kayit.value : null);
+        await gunlukYaz(audit("Milli Ara haftası kapandı", guncel.eventId + " · " + guncel.haftalar[idx].no + ". hafta sonuçları kaydedildi."));
+    }
+    async function milliHaftaDuzelt(idx, sonuclar, golcuSonuc) {
+        kurucuKontrol();
+        const kayit = await depo.get("kpn:" + lig + ":milliara");
+        const paket = milliPaketNorm(okuJSON(kayit && kayit.value, null));
+        const guncel = JSON.parse(JSON.stringify(milliAktifPaket(paket)));
+        const hh = guncel.haftalar[idx];
+        if (!hh || !hh.sonuclar) throw new Error("Kapalı hafta bulunamadı.");
+        const temizSonuclar = milliSkorlariDogrula(sonuclar, hh.maclar);
+        hh.sonuclar = temizSonuclar;
+        const sonuc = haftaPuanla(hh.maclar, temizSonuclar, hh.tahminler || {}, hh.jokerler || {});
+        hh.puanlar = sonuc.puanlar; hh.detay = sonuc.detay;
+        if (hh.golcu && golcuSonuc) Object.keys(hh.golcu).forEach(function (slug) { if (golcuSonuc[slug] != null) hh.golcu[slug].dogru = !!golcuSonuc[slug]; });
+        milliEtkinlikKapat(paket, guncel);
+        paket.events[guncel.eventId] = guncel;
+        await milliPaketKaydet({ schema: 2, activeEventId: guncel.eventId, events: paket.events }, kayit ? kayit.value : null);
+        await gunlukYaz(audit("Milli Ara sonucu düzeltildi", guncel.eventId + " · " + guncel.haftalar[idx].no + ". hafta yeniden hesaplandı."));
     }
     const nakitHesap = (slug, mag = magaza, ay = ayakta) => {
         const gelir = kasa[slug] || 0;
@@ -3580,9 +3695,10 @@ html,body,#kok{height:100%;height:100dvh;max-height:100%;max-height:100dvh;overf
     function milliGorunumu() {
         const haftalar = (milliData && milliData.haftalar) || [];
         if (!haftalar.length) {
-            const baslamamis = Object.keys(MILLI_ETKINLIKLER).filter(function (id) { return id !== (milliData && milliData.eventId); });
+            const baslamamis = Object.keys(MILLI_ETKINLIKLER).filter(function (id) { return MILLI_ETKINLIKLER[id].hazir !== false && MILLI_ETKINLIKLER[id].haftalar.length && !(milliArsiv.events && milliArsiv.events[id]); });
             return React.createElement("div", { className: "kp-kat" },
                 React.createElement("p", null, "Şu an aktif bir Milli Ara etkinliği yok."),
+                Object.keys((milliArsiv && milliArsiv.events) || {}).length > 0 && React.createElement("p", { className: "pr-muted" }, "Tamamlanan etkinlikler arşivde korunuyor; yeni etkinlik ayrı kayıt olarak açılır."),
                 kurucuMu && baslamamis.length > 0 && React.createElement(React.Fragment, null,
                     React.createElement("label", { className: "pr-label", style: { marginTop: 10 } }, "1. haftanın teslim saati"),
                     React.createElement("input", { type: "datetime-local", className: "kp-gir", value: milliDeadlineGiris, onChange: function (e) { setMilliDeadlineGiris(e.target.value); } }),
@@ -3592,6 +3708,9 @@ html,body,#kok{height:100%;height:100dvh;max-height:100%;max-height:100dvh;overf
         }
         const idx = haftalar.findIndex(function (h) { return !h.sonuclar; });
         const acikHafta = idx >= 0 ? haftalar[idx] : null;
+        const etkinlikBitti = !acikHafta && haftalar.length > 0;
+        const baslamamis = Object.keys(MILLI_ETKINLIKLER).filter(function (id) { return MILLI_ETKINLIKLER[id].hazir !== false && MILLI_ETKINLIKLER[id].haftalar.length && !(milliArsiv.events && milliArsiv.events[id]); });
+        const gecmisEtkinlikler = Object.values((milliArsiv && milliArsiv.events) || {}).filter(function (e) { return e.eventId && e.eventId !== milliData.eventId; });
         const gonderdimMi = acikHafta && acikHafta.tahminler && ben && acikHafta.tahminler[ben.slug];
         const teslimYok = acikHafta && !Number.isFinite(acikHafta.sonTeslim);
         const kilitli = acikHafta && Number.isFinite(acikHafta.sonTeslim) && Date.now() >= acikHafta.sonTeslim;
@@ -3600,7 +3719,18 @@ html,body,#kok{height:100%;height:100dvh;max-height:100%;max-height:100dvh;overf
         return React.createElement(React.Fragment, null,
             React.createElement("div", { className: "kp-kat" },
                 React.createElement("h2", null, "Milli Ara Kupası"),
-                React.createElement("p", { className: "pr-muted" }, "Süper Lig'in ana puan tablosunu, portföyü ve rulet'i hiç etkilemez — ayrı bir kasa, ayrı bir sıralama.")),
+                React.createElement("p", { className: "pr-muted" }, "Süper Lig'in ana puan tablosunu, portföyü ve rulet'i hiç etkilemez — ayrı bir kasa, ayrı bir sıralama."),
+                React.createElement("p", { className: "pr-muted" }, "Haftalar farklı sayıda maç içerebildiği için sıralama puanı 100 üzerinden dengelenir. Golcü bonusu haftalık puana ve ödüle dahildir."),
+                React.createElement("p", { className: "pr-muted" }, "Eşitlikte toplam puan, ardından tam skor sayısı; tamamen eşitse isim sırası kullanılır."),
+                etkinlikBitti && React.createElement("p", { className: "pr-muted" }, "Bu etkinlik tamamlandı. Sonuçlar arşivde; sonraki etkinlik açıldığında ayrı bir şampiyonluk olarak hesaplanacak.")),
+            etkinlikBitti && kurucuMu && baslamamis.length > 0 && React.createElement("div", { className: "kp-kat" },
+                React.createElement("h3", null, "Yeni Milli Ara etkinliği başlat"),
+                React.createElement("label", { className: "pr-label" }, "1. haftanın teslim saati"),
+                React.createElement("input", { type: "datetime-local", className: "kp-gir", value: milliDeadlineGiris, onChange: function (e) { setMilliDeadlineGiris(e.target.value); } }),
+                baslamamis.map(function (id) { return React.createElement("button", { key: id, className: "kp-dg", style: { marginTop: 10 }, disabled: !milliDeadlineGiris, onClick: function () { guvenliIslem(function () { return milliEtkinlikBaslat(id); }); } }, MILLI_ETKINLIKLER[id].ad + " — başlat"); })),
+            gecmisEtkinlikler.length > 0 && React.createElement("div", { className: "kp-kat" },
+                React.createElement("h3", null, "Milli Ara arşivi"),
+                gecmisEtkinlikler.map(function (e) { return React.createElement("div", { key: e.eventId, className: "pr-row" }, React.createElement("span", null, (MILLI_ETKINLIKLER[e.eventId] && MILLI_ETKINLIKLER[e.eventId].ad) || e.eventId), React.createElement("strong", { className: "kp-mono" }, e.sampiyon ? "şampiyon belli" : "devam ediyor")); })),
             acikHafta && teslimYok && kurucuMu && React.createElement("div", { className: "kp-kat" },
                 React.createElement("h3", null, acikHafta.no + ". hafta · " + (acikHafta.tarih || "") + " — teslim saati belirlenmedi"),
                 React.createElement("input", { type: "datetime-local", className: "kp-gir", value: milliDeadlineGiris, onChange: function (e) { setMilliDeadlineGiris(e.target.value); } }),
@@ -3609,12 +3739,14 @@ html,body,#kok{height:100%;height:100dvh;max-height:100%;max-height:100dvh;overf
                 React.createElement("p", null, acikHafta.no + ". haftanın teslim saati henüz belirlenmedi.")),
             acikHafta && !teslimYok && !gonderdimMi && !kilitli && React.createElement("div", { className: "kp-kat" },
                 React.createElement("h3", null, acikHafta.no + ". hafta · " + (acikHafta.tarih || "")),
+                React.createElement("p", { className: "pr-muted" }, "Bir maçı banko seç. O maçın puanı iki kat hesaplanır."),
                 acikHafta.maclar.map(function (m, i) {
                     return React.createElement("div", { key: i, style: { display: "flex", alignItems: "center", gap: 8, marginBottom: 8 } },
                         React.createElement("span", { style: { flex: 1 } }, m[0] + " – " + m[1], m[2] && React.createElement("span", { style: { display: "block", fontSize: 11, color: "var(--sol)", marginTop: 2 } }, m[2])),
-                        React.createElement("input", { className: "kp-gir-skor kp-mono", inputMode: "numeric", style: { width: 40 }, value: (milliSecim[i] && milliSecim[i][0]) || "", onChange: function (e) { const v = e.target.value.replace(/\D/g, "").slice(0, 1); setMilliSecim(Object.assign({}, milliSecim, { [i]: [v, (milliSecim[i] && milliSecim[i][1]) || ""] })); } }),
+                        React.createElement("label", { style: { display: "flex", alignItems: "center", gap: 3, fontSize: 11, color: "var(--banko)" } }, React.createElement("input", { type: "radio", name: "milli-banko", checked: +milliJoker === i, onChange: function () { setMilliJoker(i); } }), "B"),
+                        React.createElement("input", { className: "kp-gir-skor kp-mono", inputMode: "numeric", maxLength: 2, style: { width: 40 }, value: (milliSecim[i] && milliSecim[i][0]) || "", onChange: function (e) { const v = e.target.value.replace(/\D/g, "").slice(0, 2); setMilliSecim(Object.assign({}, milliSecim, { [i]: [v, (milliSecim[i] && milliSecim[i][1]) || ""] })); } }),
                         React.createElement("span", null, ":"),
-                        React.createElement("input", { className: "kp-gir-skor kp-mono", inputMode: "numeric", style: { width: 40 }, value: (milliSecim[i] && milliSecim[i][1]) || "", onChange: function (e) { const v = e.target.value.replace(/\D/g, "").slice(0, 1); setMilliSecim(Object.assign({}, milliSecim, { [i]: [(milliSecim[i] && milliSecim[i][0]) || "", v] })); } }));
+                        React.createElement("input", { className: "kp-gir-skor kp-mono", inputMode: "numeric", maxLength: 2, style: { width: 40 }, value: (milliSecim[i] && milliSecim[i][1]) || "", onChange: function (e) { const v = e.target.value.replace(/\D/g, "").slice(0, 2); setMilliSecim(Object.assign({}, milliSecim, { [i]: [(milliSecim[i] && milliSecim[i][0]) || "", v] })); } }));
                 }),
                 ti != null && React.createElement("div", { style: { marginTop: 10 } },
                     React.createElement("label", { style: { fontSize: 12, color: "var(--sol)" } }, "Golcü tahmini (Türkiye maçı, isteğe bağlı — doğruysa +3, Türkiye kazanırsa ek +2)"),
@@ -3622,15 +3754,34 @@ html,body,#kok{height:100%;height:100dvh;max-height:100%;max-height:100dvh;overf
                 React.createElement("button", { className: "kp-dg", style: { marginTop: 12 }, onClick: function () { guvenliIslem(milliKuponYaz); } }, "Gönder")),
             acikHafta && (gonderdimMi || kilitli) && !acikHafta.sonuclar && React.createElement("div", { className: "kp-kat" },
                 React.createElement("p", null, gonderdimMi ? "Bu haftanın kuponunu gönderdin. Sonuçlar girilince burada görünecek." : "Teslim saati geçti, kupon kapandı.")),
-            haftalar.filter(function (h) { return h.sonuclar; }).map(function (h) {
+            haftalar.map(function (h, hidx) {
+                if (!h.sonuclar) return null;
                 const siralama = milliOdul(h);
                 return React.createElement("div", { className: "kp-kat", key: h.no },
                     React.createElement("h3", null, h.no + ". hafta sonucu"),
                     siralama.map(function (x) {
+                        const golcuBonus = milliGolcuPuan(h)[x.slug] || 0;
                         return React.createElement("div", { key: x.slug, style: { display: "flex", justifyContent: "space-between" } },
-                            React.createElement("span", null, x.sira + ". " + x.isim), React.createElement("b", null, x.puan + " p · " + paraYaz(x.odul)));
-                    }));
+                            React.createElement("span", null, x.sira + ". " + x.isim), React.createElement("b", null, x.puan.toFixed(1) + " p" + (golcuBonus ? " · golcü +" + golcuBonus : "") + " · " + paraYaz(x.odul)));
+                    }),
+                    kurucuMu && React.createElement("button", { className: "kp-dg2", style: { marginTop: 10 }, onClick: function () { setMilliDuzeltIdx(hidx); setMilliDuzeltGiris(Object.fromEntries((h.sonuclar || []).map(function (s, i) { return [i, [String(s[0]), String(s[1])]]; }))); } }, "Sonuçları düzelt"));
             }),
+            kurucuMu && milliDuzeltIdx != null && haftalar[milliDuzeltIdx] && React.createElement("div", { className: "kp-kat" },
+                React.createElement("h3", null, haftalar[milliDuzeltIdx].no + ". hafta sonucunu düzelt"),
+                haftalar[milliDuzeltIdx].maclar.map(function (m, i) {
+                    const s = milliDuzeltGiris[i] || ["", ""];
+                    return React.createElement("div", { key: i, style: { display: "flex", alignItems: "center", gap: 8, marginBottom: 8 } },
+                        React.createElement("span", { style: { flex: 1 } }, m[0] + " – " + m[1]),
+                        React.createElement("input", { className: "kp-gir-skor kp-mono", inputMode: "numeric", maxLength: 2, style: { width: 40 }, value: s[0], onChange: function (e) { const v = e.target.value.replace(/\D/g, "").slice(0, 2); setMilliDuzeltGiris(Object.assign({}, milliDuzeltGiris, { [i]: [v, (milliDuzeltGiris[i] && milliDuzeltGiris[i][1]) || ""] })); } }),
+                        React.createElement("span", null, ":"),
+                        React.createElement("input", { className: "kp-gir-skor kp-mono", inputMode: "numeric", maxLength: 2, style: { width: 40 }, value: s[1], onChange: function (e) { const v = e.target.value.replace(/\D/g, "").slice(0, 2); setMilliDuzeltGiris(Object.assign({}, milliDuzeltGiris, { [i]: [(milliDuzeltGiris[i] && milliDuzeltGiris[i][0]) || "", v] })); } }));
+                }),
+                React.createElement("button", { className: "kp-dg", style: { marginTop: 10 }, onClick: function () { guvenliIslem(function () {
+                    const h = haftalar[milliDuzeltIdx];
+                    const sonuclar = h.maclar.map(function (_, i) { const s = milliDuzeltGiris[i]; if (!s || s[0] === "" || s[1] === "") throw new Error("Bütün maçların sonucu girilmeli."); return [+s[0], +s[1]]; });
+                    return milliHaftaDuzelt(milliDuzeltIdx, sonuclar, null).then(function () { setMilliDuzeltIdx(null); setMilliDuzeltGiris({}); setMilliGolcuOnay({}); });
+                }); } }, "Düzeltmeyi kaydet"),
+                React.createElement("button", { className: "kp-dg2", style: { marginTop: 8 }, onClick: function () { setMilliDuzeltIdx(null); setMilliDuzeltGiris({}); } }, "Vazgeç")),
             milliData.sampiyon && React.createElement("div", { className: "kp-kat", style: { borderColor: "var(--banko)" } },
                 React.createElement("h3", null, "🏆 Milli Ara Şampiyonu"),
                 React.createElement("p", null, (kurulum && kurulum.oyuncular.find(function (o) { return o.slug === milliData.sampiyon; }) || {}).isim || milliData.sampiyon)),
@@ -3639,9 +3790,9 @@ html,body,#kok{height:100%;height:100dvh;max-height:100%;max-height:100dvh;overf
                 acikHafta.maclar.map(function (m, i) {
                     return React.createElement("div", { key: i, style: { display: "flex", alignItems: "center", gap: 8, marginBottom: 8 } },
                         React.createElement("span", { style: { flex: 1 } }, m[0] + " – " + m[1], m[2] && React.createElement("span", { style: { display: "block", fontSize: 11, color: "var(--sol)", marginTop: 2 } }, m[2])),
-                        React.createElement("input", { className: "kp-gir-skor kp-mono", inputMode: "numeric", style: { width: 40 }, value: (milliSonucGiris[i] && milliSonucGiris[i][0]) || "", onChange: function (e) { const v = e.target.value.replace(/\D/g, "").slice(0, 1); setMilliSonucGiris(Object.assign({}, milliSonucGiris, { [i]: [v, (milliSonucGiris[i] && milliSonucGiris[i][1]) || ""] })); } }),
+                        React.createElement("input", { className: "kp-gir-skor kp-mono", inputMode: "numeric", maxLength: 2, style: { width: 40 }, value: (milliSonucGiris[i] && milliSonucGiris[i][0]) || "", onChange: function (e) { const v = e.target.value.replace(/\D/g, "").slice(0, 2); setMilliSonucGiris(Object.assign({}, milliSonucGiris, { [i]: [v, (milliSonucGiris[i] && milliSonucGiris[i][1]) || ""] })); } }),
                         React.createElement("span", null, ":"),
-                        React.createElement("input", { className: "kp-gir-skor kp-mono", inputMode: "numeric", style: { width: 40 }, value: (milliSonucGiris[i] && milliSonucGiris[i][1]) || "", onChange: function (e) { const v = e.target.value.replace(/\D/g, "").slice(0, 1); setMilliSonucGiris(Object.assign({}, milliSonucGiris, { [i]: [(milliSonucGiris[i] && milliSonucGiris[i][0]) || "", v] })); } }));
+                        React.createElement("input", { className: "kp-gir-skor kp-mono", inputMode: "numeric", maxLength: 2, style: { width: 40 }, value: (milliSonucGiris[i] && milliSonucGiris[i][1]) || "", onChange: function (e) { const v = e.target.value.replace(/\D/g, "").slice(0, 2); setMilliSonucGiris(Object.assign({}, milliSonucGiris, { [i]: [(milliSonucGiris[i] && milliSonucGiris[i][0]) || "", v] })); } }));
                 }),
                 acikHafta.golcu && Object.keys(acikHafta.golcu).length > 0 && React.createElement("div", { style: { marginTop: 10 } },
                     React.createElement("p", { style: { fontSize: 12, color: "var(--sol)" } }, "Golcü tahminleri:"),
@@ -3653,9 +3804,13 @@ html,body,#kok{height:100%;height:100dvh;max-height:100%;max-height:100dvh;overf
                             React.createElement("span", null, (oy && oy.isim) || slug, " → ", g.isim));
                     })),
                 React.createElement("button", {
-                    className: "kp-dg", style: { marginTop: 12 }, onClick: function () {
+                        className: "kp-dg", style: { marginTop: 12 }, onClick: function () {
                         guvenliIslem(function () {
-                            const sonuclar = acikHafta.maclar.map(function (_, i) { return [+((milliSonucGiris[i] && milliSonucGiris[i][0]) || 0), +((milliSonucGiris[i] && milliSonucGiris[i][1]) || 0)]; });
+                            const sonuclar = acikHafta.maclar.map(function (_, i) {
+                                const s = milliSonucGiris[i];
+                                if (!s || s[0] === "" || s[1] === "" || s[0] == null || s[1] == null) throw new Error("Bütün maçların sonucu girilmeli.");
+                                return [+s[0], +s[1]];
+                            });
                             return milliHaftaKapat(idx, sonuclar, milliGolcuOnay).then(function () { setMilliSonucGiris({}); setMilliGolcuOnay({}); });
                         });
                     }
@@ -4497,3 +4652,4 @@ if (window.ReactDOM && ReactDOM.createRoot)
 </script>
 </body>
 </html>
+
