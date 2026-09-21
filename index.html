@@ -888,6 +888,7 @@ function Kupon() {
     const [milliGolcu, setMilliGolcu] = useState("");
     const [milliSonucGiris, setMilliSonucGiris] = useState({});
     const [milliGolcuOnay, setMilliGolcuOnay] = useState({});
+    const [milliDeadlineGiris, setMilliDeadlineGiris] = useState("");
     const [aySec, setAySec] = useState(null);
     const [ayGirisOnay, setAyGirisOnay] = useState(false);
     const [aySecOnay, setAySecOnay] = useState(false);
@@ -2044,6 +2045,33 @@ function Kupon() {
         if (hepsiKapali && katildi) toplam += MILLI_KATILIM_PRIMI;
         if (milliData && milliData.sampiyon === slug) toplam += MILLI_SAMPIYON_BONUS;
         return Math.round(toplam * 100) / 100;
+    }
+    async function milliEtkinlikBaslat(eventId) {
+        kurucuKontrol();
+        const zaman = Date.parse(milliDeadlineGiris + ":00+03:00");
+        if (!Number.isFinite(zaman)) throw new Error("Geçerli bir teslim saati gir.");
+        const kaynak = MILLI_ETKINLIKLER[eventId];
+        if (!kaynak) throw new Error("Etkinlik bulunamadı.");
+        const guncel = {
+            eventId, seriesId: kaynak.seriesId, sampiyon: null,
+            haftalar: kaynak.haftalar.map(function (h, i) {
+                return { no: h.no, tarih: h.tarih, maclar: h.maclar, sonTeslim: i === 0 ? zaman : null, tahminler: {}, golcu: {} };
+            }),
+        };
+        const onceki = await depo.get("kpn:" + lig + ":milliara");
+        await depo.kosulluSet("kpn:" + lig + ":milliara", JSON.stringify(guncel), onceki ? onceki.value : null);
+        setMilliData(guncel); setMilliDeadlineGiris("");
+    }
+    async function milliHaftaTeslimBelirle(idx) {
+        kurucuKontrol();
+        const zaman = Date.parse(milliDeadlineGiris + ":00+03:00");
+        if (!Number.isFinite(zaman)) throw new Error("Geçerli bir teslim saati gir.");
+        const guncel = JSON.parse(JSON.stringify(milliData));
+        if (Number.isFinite(guncel.haftalar[idx].sonTeslim)) throw new Error("Bu haftanın teslim saati zaten belirlenmiş.");
+        guncel.haftalar[idx].sonTeslim = zaman;
+        const onceki = await depo.get("kpn:" + lig + ":milliara");
+        await depo.kosulluSet("kpn:" + lig + ":milliara", JSON.stringify(guncel), onceki ? onceki.value : null);
+        setMilliData(guncel); setMilliDeadlineGiris("");
     }
     async function milliKuponYaz() {
         if (!ben) throw new Error("Önce giriş yap.");
@@ -3529,11 +3557,21 @@ html,body,#kok{height:100%;height:100dvh;max-height:100%;max-height:100dvh;overf
     }
     function milliGorunumu() {
         const haftalar = (milliData && milliData.haftalar) || [];
-        if (!haftalar.length) return React.createElement("div", { className: "kp-kat" },
-            React.createElement("p", null, "Şu an aktif bir Milli Ara etkinliği yok."));
+        if (!haftalar.length) {
+            const baslamamis = Object.keys(MILLI_ETKINLIKLER).filter(function (id) { return id !== (milliData && milliData.eventId); });
+            return React.createElement("div", { className: "kp-kat" },
+                React.createElement("p", null, "Şu an aktif bir Milli Ara etkinliği yok."),
+                kurucuMu && baslamamis.length > 0 && React.createElement(React.Fragment, null,
+                    React.createElement("label", { className: "pr-label", style: { marginTop: 10 } }, "1. haftanın teslim saati"),
+                    React.createElement("input", { type: "datetime-local", className: "kp-gir", value: milliDeadlineGiris, onChange: function (e) { setMilliDeadlineGiris(e.target.value); } }),
+                    baslamamis.map(function (id) {
+                        return React.createElement("button", { key: id, className: "kp-dg", style: { marginTop: 10 }, disabled: !milliDeadlineGiris, onClick: function () { guvenliIslem(function () { return milliEtkinlikBaslat(id); }); } }, MILLI_ETKINLIKLER[id].ad + " — başlat");
+                    })));
+        }
         const idx = haftalar.findIndex(function (h) { return !h.sonuclar; });
         const acikHafta = idx >= 0 ? haftalar[idx] : null;
         const gonderdimMi = acikHafta && acikHafta.tahminler && ben && acikHafta.tahminler[ben.slug];
+        const teslimYok = acikHafta && !Number.isFinite(acikHafta.sonTeslim);
         const kilitli = acikHafta && Number.isFinite(acikHafta.sonTeslim) && Date.now() >= acikHafta.sonTeslim;
         const ti = acikHafta ? milliHaftaTurkiyeMaci(acikHafta) : null;
 
@@ -3541,7 +3579,13 @@ html,body,#kok{height:100%;height:100dvh;max-height:100%;max-height:100dvh;overf
             React.createElement("div", { className: "kp-kat" },
                 React.createElement("h2", null, "Milli Ara Kupası"),
                 React.createElement("p", { className: "pr-muted" }, "Süper Lig'in ana puan tablosunu, portföyü ve rulet'i hiç etkilemez — ayrı bir kasa, ayrı bir sıralama.")),
-            acikHafta && !gonderdimMi && !kilitli && React.createElement("div", { className: "kp-kat" },
+            acikHafta && teslimYok && kurucuMu && React.createElement("div", { className: "kp-kat" },
+                React.createElement("h3", null, acikHafta.no + ". hafta · " + (acikHafta.tarih || "") + " — teslim saati belirlenmedi"),
+                React.createElement("input", { type: "datetime-local", className: "kp-gir", value: milliDeadlineGiris, onChange: function (e) { setMilliDeadlineGiris(e.target.value); } }),
+                React.createElement("button", { className: "kp-dg", style: { marginTop: 10 }, disabled: !milliDeadlineGiris, onClick: function () { guvenliIslem(function () { return milliHaftaTeslimBelirle(idx); }); } }, "Teslim saatini kaydet")),
+            acikHafta && teslimYok && !kurucuMu && React.createElement("div", { className: "kp-kat" },
+                React.createElement("p", null, acikHafta.no + ". haftanın teslim saati henüz belirlenmedi.")),
+            acikHafta && !teslimYok && !gonderdimMi && !kilitli && React.createElement("div", { className: "kp-kat" },
                 React.createElement("h3", null, acikHafta.no + ". hafta · " + (acikHafta.tarih || "")),
                 acikHafta.maclar.map(function (m, i) {
                     return React.createElement("div", { key: i, style: { display: "flex", alignItems: "center", gap: 8, marginBottom: 8 } },
