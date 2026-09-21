@@ -241,10 +241,30 @@ const MILLI_SAMPIYON_BONUS = 300;
 const MILLI_TAKIMLAR = ["Türkiye", "Fransa", "Almanya", "İtalya", "İspanya", "Belçika", "Hollanda", "Hırvatistan", "Danimarka", "Portekiz", "İngiltere", "Yunanistan"];
 const MILLI_ETKINLIKLER = {
     "milli-ara-eylul-2026": {
-        seriesId: MILLI_SERIES_ID, ad: "Milli Ara · Eylül 2026", evre: "eylul",
+        seriesId: MILLI_SERIES_ID, ad: "Milli Ara · Eylül-Ekim 2026", evre: "eylul",
+        /* Tarihler UEFA'nın resmi 2026-27 Uluslar Ligi fikstüründen, Türkiye saatine
+           çevrilerek alındı — her maç kendi gününü taşıyor, tek bir ortak gün varsayılmadı. */
         haftalar: [
-            { no: 1, tarih: "24 Eylül", maclar: [["Hollanda", "Almanya"], ["İtalya", "Belçika"], ["Türkiye", "Fransa"], ["İspanya", "Hırvatistan"], ["Danimarka", "Portekiz"], ["Belçika", "Türkiye"]] },
-            { no: 2, tarih: "6 Ekim", maclar: [["Fransa", "İtalya"], ["Hırvatistan", "İngiltere"], ["Yunanistan", "Almanya"], ["Fransa", "Belçika"], ["İtalya", "Türkiye"], ["Hırvatistan", "İspanya"]] },
+            {
+                no: 1, tarih: "24–29 Eylül", maclar: [
+                    ["Hollanda", "Almanya", "24 Eylül Perşembe"],
+                    ["İtalya", "Belçika", "25 Eylül Cuma"],
+                    ["Türkiye", "Fransa", "25 Eylül Cuma, 21.45"],
+                    ["İspanya", "Hırvatistan", "29 Eylül Salı"],
+                ],
+            },
+            {
+                no: 2, tarih: "1–6 Ekim", maclar: [
+                    ["Danimarka", "Portekiz", "1 Ekim Perşembe, 21.45"],
+                    ["Belçika", "Türkiye", "2 Ekim Cuma, 21.45"],
+                    ["Fransa", "İtalya", "2 Ekim Cuma"],
+                    ["Hırvatistan", "İngiltere", "3 Ekim Cumartesi, 19.00"],
+                    ["Yunanistan", "Almanya", "4 Ekim Pazar"],
+                    ["Fransa", "Belçika", "5 Ekim Pazartesi"],
+                    ["İtalya", "Türkiye", "5 Ekim Pazartesi, 21.45"],
+                    ["Hırvatistan", "İspanya", "6 Ekim Salı"],
+                ],
+            },
         ],
     },
 };
@@ -2851,6 +2871,8 @@ html,body,#kok{height:100%;height:100dvh;max-height:100%;max-height:100dvh;overf
 .kp-cip.pas{opacity:.28;cursor:default;}
 .kp-gir{background:var(--kat2);border:1px solid var(--cizgi);color:var(--fg);padding:13px;border-radius:var(--r-sm);width:100%;font-size:16px;font-family:Figtree,sans-serif;transition:border-color .15s var(--ease),box-shadow .15s var(--ease);}
 .kp-gir:focus{outline:none;border-color:color-mix(in oklab,var(--aksan) 55%,var(--cizgi));box-shadow:0 0 0 3px color-mix(in oklab,var(--aksan) 18%,transparent);}
+.kp-gir-skor{background:var(--kat2);border:1.5px solid #F5A623;color:#F5A623;font-weight:700;padding:13px;border-radius:var(--r-sm);font-size:16px;font-family:Figtree,sans-serif;text-align:center;transition:border-color .15s var(--ease),box-shadow .15s var(--ease);}
+.kp-gir-skor:focus{outline:none;border-color:#F5A623;box-shadow:0 0 0 3px rgba(245,166,35,.28);}
 .kp-unvan{display:inline-flex;align-items:center;font-family:'IBM Plex Mono',monospace;font-size:9px;font-weight:700;letter-spacing:.09em;padding:3px 8px;border-radius:99px;white-space:nowrap;}
 .kp-unvan.iyi{background:color-mix(in oklab,var(--yesil) 16%,transparent);color:var(--yesil);border:1px solid color-mix(in oklab,var(--yesil) 32%,transparent);}
 .kp-unvan.kotu{background:color-mix(in oklab,var(--kirmizi) 14%,transparent);color:var(--kirmizi);border:1px solid color-mix(in oklab,var(--kirmizi) 28%,transparent);}
@@ -3589,10 +3611,10 @@ html,body,#kok{height:100%;height:100dvh;max-height:100%;max-height:100dvh;overf
                 React.createElement("h3", null, acikHafta.no + ". hafta · " + (acikHafta.tarih || "")),
                 acikHafta.maclar.map(function (m, i) {
                     return React.createElement("div", { key: i, style: { display: "flex", alignItems: "center", gap: 8, marginBottom: 8 } },
-                        React.createElement("span", { style: { flex: 1 } }, m[0] + " – " + m[1]),
-                        React.createElement("input", { className: "kp-gir kp-mono", inputMode: "numeric", style: { width: 40 }, value: (milliSecim[i] && milliSecim[i][0]) || "", onChange: function (e) { const v = e.target.value.replace(/\D/g, "").slice(0, 1); setMilliSecim(Object.assign({}, milliSecim, { [i]: [v, (milliSecim[i] && milliSecim[i][1]) || ""] })); } }),
+                        React.createElement("span", { style: { flex: 1 } }, m[0] + " – " + m[1], m[2] && React.createElement("span", { style: { display: "block", fontSize: 11, color: "var(--sol)", marginTop: 2 } }, m[2])),
+                        React.createElement("input", { className: "kp-gir-skor kp-mono", inputMode: "numeric", style: { width: 40 }, value: (milliSecim[i] && milliSecim[i][0]) || "", onChange: function (e) { const v = e.target.value.replace(/\D/g, "").slice(0, 1); setMilliSecim(Object.assign({}, milliSecim, { [i]: [v, (milliSecim[i] && milliSecim[i][1]) || ""] })); } }),
                         React.createElement("span", null, ":"),
-                        React.createElement("input", { className: "kp-gir kp-mono", inputMode: "numeric", style: { width: 40 }, value: (milliSecim[i] && milliSecim[i][1]) || "", onChange: function (e) { const v = e.target.value.replace(/\D/g, "").slice(0, 1); setMilliSecim(Object.assign({}, milliSecim, { [i]: [(milliSecim[i] && milliSecim[i][0]) || "", v] })); } }));
+                        React.createElement("input", { className: "kp-gir-skor kp-mono", inputMode: "numeric", style: { width: 40 }, value: (milliSecim[i] && milliSecim[i][1]) || "", onChange: function (e) { const v = e.target.value.replace(/\D/g, "").slice(0, 1); setMilliSecim(Object.assign({}, milliSecim, { [i]: [(milliSecim[i] && milliSecim[i][0]) || "", v] })); } }));
                 }),
                 ti != null && React.createElement("div", { style: { marginTop: 10 } },
                     React.createElement("label", { style: { fontSize: 12, color: "var(--sol)" } }, "Golcü tahmini (Türkiye maçı, isteğe bağlı — doğruysa +3, Türkiye kazanırsa ek +2)"),
@@ -3616,10 +3638,10 @@ html,body,#kok{height:100%;height:100dvh;max-height:100%;max-height:100dvh;overf
                 React.createElement("h3", null, "Sonuçları gir (kurucu)"),
                 acikHafta.maclar.map(function (m, i) {
                     return React.createElement("div", { key: i, style: { display: "flex", alignItems: "center", gap: 8, marginBottom: 8 } },
-                        React.createElement("span", { style: { flex: 1 } }, m[0] + " – " + m[1]),
-                        React.createElement("input", { className: "kp-gir kp-mono", inputMode: "numeric", style: { width: 40 }, value: (milliSonucGiris[i] && milliSonucGiris[i][0]) || "", onChange: function (e) { const v = e.target.value.replace(/\D/g, "").slice(0, 1); setMilliSonucGiris(Object.assign({}, milliSonucGiris, { [i]: [v, (milliSonucGiris[i] && milliSonucGiris[i][1]) || ""] })); } }),
+                        React.createElement("span", { style: { flex: 1 } }, m[0] + " – " + m[1], m[2] && React.createElement("span", { style: { display: "block", fontSize: 11, color: "var(--sol)", marginTop: 2 } }, m[2])),
+                        React.createElement("input", { className: "kp-gir-skor kp-mono", inputMode: "numeric", style: { width: 40 }, value: (milliSonucGiris[i] && milliSonucGiris[i][0]) || "", onChange: function (e) { const v = e.target.value.replace(/\D/g, "").slice(0, 1); setMilliSonucGiris(Object.assign({}, milliSonucGiris, { [i]: [v, (milliSonucGiris[i] && milliSonucGiris[i][1]) || ""] })); } }),
                         React.createElement("span", null, ":"),
-                        React.createElement("input", { className: "kp-gir kp-mono", inputMode: "numeric", style: { width: 40 }, value: (milliSonucGiris[i] && milliSonucGiris[i][1]) || "", onChange: function (e) { const v = e.target.value.replace(/\D/g, "").slice(0, 1); setMilliSonucGiris(Object.assign({}, milliSonucGiris, { [i]: [(milliSonucGiris[i] && milliSonucGiris[i][0]) || "", v] })); } }));
+                        React.createElement("input", { className: "kp-gir-skor kp-mono", inputMode: "numeric", style: { width: 40 }, value: (milliSonucGiris[i] && milliSonucGiris[i][1]) || "", onChange: function (e) { const v = e.target.value.replace(/\D/g, "").slice(0, 1); setMilliSonucGiris(Object.assign({}, milliSonucGiris, { [i]: [(milliSonucGiris[i] && milliSonucGiris[i][0]) || "", v] })); } }));
                 }),
                 acikHafta.golcu && Object.keys(acikHafta.golcu).length > 0 && React.createElement("div", { style: { marginTop: 10 } },
                     React.createElement("p", { style: { fontSize: 12, color: "var(--sol)" } }, "Golcü tahminleri:"),
