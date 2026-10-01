@@ -11,6 +11,27 @@
     html=html.replace('["milli", "Milli Ara"], ','');
     html=html.replace("</body>", PRO+"</body>");
     document.open(); document.write(html); document.close();
+    var br=await fetch("top.b64");
+    var b64=(await br.text()).replace(/\s/g,"");
+    var bin=atob(b64);
+    var bytes=new Uint8Array(bin.length);
+    for(var i=0;i<bin.length;i++) bytes[i]=bin.charCodeAt(i);
+    var url=URL.createObjectURL(new Blob([bytes],{type:"image/png"}));
+    function topKoy(){
+      document.querySelectorAll(".pr-catisma-svg").forEach(function(el){
+        if(el.tagName==="IMG") return;
+        var img=document.createElement("img");
+        img.className="pr-catisma-svg";
+        img.src=url;
+        img.alt="Futbol topu";
+        img.style.cssText="width:56px;height:56px;object-fit:cover;border-radius:50%;display:block";
+        el.replaceWith(img);
+      });
+    }
+    topKoy();
+    setTimeout(topKoy,400);
+    setTimeout(topKoy,1200);
+    new MutationObserver(topKoy).observe(document.body,{childList:true,subtree:true});
   }catch(e){
     document.body.textContent="Yüklenemedi: "+e.message;
   }
