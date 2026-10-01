@@ -11,20 +11,12 @@
     html=html.replace('["milli", "Milli Ara"], ','');
     html=html.replace("</body>", PRO+"</body>");
     document.open(); document.write(html); document.close();
-    var br=await fetch("top.b64?v=2");
-    var b64=(await br.text()).replace(/\s/g,"");
-    var bin=atob(b64);
-    var bytes=new Uint8Array(bin.length);
-    for(var i=0;i<bin.length;i++) bytes[i]=bin.charCodeAt(i);
-    var url=URL.createObjectURL(new Blob([bytes],{type:"image/png"}));
-    var st=document.createElement("style");
-    st.textContent='html,body,#kok,.kp,.kp *{cursor:url("'+url+'") 16 16, auto !important}';
-    document.head.appendChild(st);
   }catch(e){
     document.body.textContent="Yüklenemedi: "+e.message;
   }
 })();
 var PRO = `<style id="kp-pro">
+html,body,#kok,.kp,.kp *{cursor:auto !important}
 html,body,#kok{background:#07090d!important}
 .kp{--bg:#07090d;--kat:#0e1218;--cizgi:rgba(255,255,255,.1);--fg:#f4f6f8;--sol:#8d95a6;--aksan:#f4f6f8;--aksan-fg:#111;background:#07090d!important;background-image:none!important}
 .kp-giris-gorsel{display:none!important}
