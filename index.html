@@ -1,1 +1,21 @@
-SKIP
+<!DOCTYPE html>
+<html lang="tr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Kupon</title></head>
+<body><p style="font-family:sans-serif;padding:24px">Kupon yükleniyor…</p>
+<script>
+(async function(){
+  try{
+    var names=["app.p1.txt","app.p2.txt","app.p3.txt","app.p4.txt","app.p5.txt","app.p6.txt"];
+    var html="";
+    for(var i=0;i<names.length;i++){
+      var r=await fetch(names[i]+"?v=milli-off");
+      if(!r.ok) throw new Error(names[i]);
+      html+=await r.text();
+    }
+    document.open();
+    document.write(html);
+    document.close();
+  }catch(e){
+    document.body.innerHTML="<p style='font-family:sans-serif;padding:24px'>Yüklenemedi: "+e.message+"</p>";
+  }
+})();
+</script></body></html>
