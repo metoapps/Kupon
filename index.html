@@ -13,30 +13,30 @@
     html=html.replace('React.createElement("h1", { className: "kp-mark" }, "Kupon")', 'React.createElement("div",{style:{display:"flex",alignItems:"center",gap:14}},React.createElement(CatismaFiguru),React.createElement("h1", { className: "kp-mark" }, "Kupon"))');
     html=html.replace("</body>", PRO+"</body>");
     document.open(); document.write(html); document.close();
+    var ic='<circle cx="32" cy="32" r="30" fill="#fff" stroke="#111" stroke-width="1.4"/><polygon points="32,11 40,17 37,27 27,27 24,17" fill="#111"/><polygon points="32,11 24,17 16,14 17.5,6.5 26,7.5" fill="#111"/><polygon points="32,11 40,17 48,14 46.5,6.5 38,7.5" fill="#111"/><polygon points="24,17 16,14 9,22 13,30 21,27" fill="#111"/><polygon points="40,17 48,14 55,22 51,30 43,27" fill="#111"/><polygon points="13,30 21,27 24,36 17,43 9,37" fill="#111"/><polygon points="51,30 43,27 40,36 47,43 55,37" fill="#111"/><polygon points="24,36 17,43 20,52 28,53 30,44" fill="#111"/><polygon points="40,36 47,43 44,52 36,53 34,44" fill="#111"/><polygon points="28,53 36,53 38,59 26,59" fill="#111"/>';
+    function doldur(){
+      document.querySelectorAll('svg.kp-top, svg.pr-catisma-svg').forEach(function(el){
+        if(!el.querySelector('circle')) el.innerHTML=ic;
+      });
+    }
+    doldur();
+    setTimeout(doldur,250);
+    setTimeout(doldur,900);
+    new MutationObserver(doldur).observe(document.body,{childList:true,subtree:true});
   }catch(e){
     document.body.textContent="Yüklenemedi: "+e.message;
   }
 })();
-var TOPFN = 'function CatismaFiguru(){var s=function(t,p){return React.createElement(t,p);};return s("svg",{className:"pr-catisma-svg kp-top",viewBox:"0 0 64 64","aria-hidden":"true"},s("circle",{cx:"32",cy:"32",r:"30",fill:"#fff",stroke:"#111",strokeWidth:"1.4"}),s("polygon",{points:"32,11 40,17 37,27 27,27 24,17",fill:"#111"}),s("polygon",{points:"32,11 24,17 16,14 17.5,6.5 26,7.5",fill:"#111"}),s("polygon",{points:"32,11 40,17 48,14 46.5,6.5 38,7.5",fill:"#111"}),s("polygon",{points:"24,17 16,14 9,22 13,30 21,27",fill:"#111"}),s("polygon",{points:"40,17 48,14 55,22 51,30 43,27",fill:"#111"}),s("polygon",{points:"13,30 21,27 24,36 17,43 9,37",fill:"#111"}),s("polygon",{points:"51,30 43,27 40,36 47,43 55,37",fill:"#111"}),s("polygon",{points:"24,36 17,43 20,52 28,53 30,44",fill:"#111"}),s("polygon",{points:"40,36 47,43 44,52 36,53 34,44",fill:"#111"}),s("polygon",{points:"28,53 36,53 38,59 26,59",fill:"#111"}));}\n';
+var TOPFN = 'function CatismaFiguru(){return React.createElement("svg",{className:"pr-catisma-svg kp-top",viewBox:"0 0 64 64","aria-hidden":"true"});}\n';
 var PRO = `<style id="kp-pro">
 html,body,#kok,.kp,.kp *{cursor:auto !important}
-.pr-catisma-svg,.kp-top{width:56px!important;height:56px!important;flex:none}
+.pr-catisma-svg,.kp-top{width:56px!important;height:56px!important;flex:none;display:block}
 .kp-top{transform-origin:50% 50%;animation:kpDon 7s linear infinite}
 @keyframes kpDon{to{transform:rotate(360deg)}}
 html,body,#kok{background:#07090d!important}
-.kp{--bg:#07090d;--kat:#0e1218;--cizgi:rgba(255,255,255,.1);--fg:#f4f6f8;--sol:#8d95a6;--aksan:#f4f6f8;--aksan-fg:#111;background:#07090d!important;background-image:none!important}
+.kp{background:#07090d!important;background-image:none!important}
 .kp-giris-gorsel{display:none!important}
-.kp-mark{font-style:normal!important;font-weight:560!important;font-size:44px!important;letter-spacing:-.04em!important}
-.kp-kat{background:#0e1218!important;border:1px solid rgba(255,255,255,.1)!important;border-radius:12px!important;box-shadow:none!important}
-.kp-dg{background:#f4f6f8!important;color:#111!important;border-radius:10px!important;box-shadow:none!important}
+.kp-mark{font-style:normal!important;font-size:44px!important}
 .kp-alt{background:#07090d!important;border-top:1px solid rgba(255,255,255,.1)!important}
-.kp-alt button.on{box-shadow:inset 0 -2px 0 #f4f6f8!important;color:#fff!important}
-</style><script>
-(function(){
-  function sakin(){
-    document.querySelectorAll('.kp-giris-gorsel').forEach(function(el){el.remove();});
-  }
-  sakin(); setTimeout(sakin,300); setTimeout(sakin,1000);
-})();
-<\/script>`;
+</style>`;
 </script></body></html>
