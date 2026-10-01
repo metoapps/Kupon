@@ -1,7 +1,6 @@
 <!DOCTYPE html>
-<html lang="tr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Kupon</title>
-<style>html,body{margin:0;background:#07090d;color:#9aa3b5;font-family:Figtree,system-ui,sans-serif}</style></head>
-<body><p style="padding:28px 20px">Kupon yükleniyor…</p>
+<html lang="tr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Kupon</title></head>
+<body style="margin:0;background:#07090d;color:#9aa3b5;font-family:Figtree,system-ui,sans-serif;padding:28px 20px">Kupon yükleniyor…
 <script>
 (async function(){
   try{
@@ -11,62 +10,33 @@
     html=html.replace('sekme === "milli" && milliGorunumu(),','');
     html=html.replace('["milli", "Milli Ara"], ','');
     html=html.replace("</body>", PRO+"</body>");
-    document.open();
-    document.write(html);
-    document.close();
+    document.open(); document.write(html); document.close();
   }catch(e){
-    document.body.innerHTML="<p style='font-family:sans-serif;padding:24px'>Yüklenemedi: "+e.message+"</p>";
+    document.body.textContent="Yüklenemedi: "+e.message;
   }
 })();
 var PRO = `<style id="kp-pro">
-html,body,#kok{background:#07090d!important;color-scheme:dark}
-.kp{
-  --bg:#07090d;--kat:#0c1016;--kat2:#10151d;--cizgi:rgba(255,255,255,.08);
-  --fg:#f2f4f8;--sol:#8b93a7;--aksan:#f2f4f8;--aksan-fg:#101318;
-  --banko:#d7deea;--kirmizi:#e07a86;--yesil:#3dba8b;
-  --kagit:#0c1016;--murekkep:#f2f4f8;--kagit-sol:#8b93a7;
-  --r-xs:6px;--r-sm:8px;--r-md:10px;--r-lg:12px;
-  background:#07090d!important;background-image:none!important;
-}
-.kp-kat,.kp-kagit{
-  background:#0c1016!important;border:1px solid rgba(255,255,255,.08)!important;
-  border-radius:12px!important;box-shadow:none!important;border-top-width:1px!important;
-}
-.kp-et{color:#8b93a7!important;font-size:10px!important;letter-spacing:.16em!important;font-weight:600!important}
-.kp-mark{font-weight:560!important;letter-spacing:-.045em!important}
-.kp-masthead{border-bottom:1px solid rgba(255,255,255,.08)!important}
-.kp-dg,.kp-dg2{
-  background:#f2f4f8!important;color:#101318!important;border:0!important;
-  border-radius:10px!important;font-weight:650!important;letter-spacing:0!important;
-  box-shadow:none!important;
-}
-.kp-dg2{background:transparent!important;color:#f2f4f8!important;border:1px solid rgba(255,255,255,.14)!important}
-.kp input,.kp select,.kp textarea{
-  background:#10151d!important;border:1px solid rgba(255,255,255,.1)!important;
-  border-radius:10px!important;color:#f2f4f8!important;
-}
-.kp-alt{
-  background:rgba(7,9,13,.92)!important;backdrop-filter:blur(16px);
-  border-top:1px solid rgba(255,255,255,.08)!important;
-}
-.kp-alt button{font-size:10px!important;letter-spacing:.08em!important;color:#8b93a7!important;box-shadow:none!important}
-.kp-alt button.on{color:#f2f4f8!important;box-shadow:inset 0 -2px 0 #f2f4f8!important}
-.kp-mono,.kz-tutar{font-variant-numeric:tabular-nums}
-.kp-gazete-name,.kp-gazete-bas,.kp-gazete-dip{text-shadow:none!important}
-.kp-gazete-ust{border-bottom-color:rgba(255,255,255,.1)!important;color:#8b93a7!important}
-</style>
-<script>
+html,body,#kok{background:#07090d!important}
+.kp{--bg:#07090d;--kat:#0e1218;--cizgi:rgba(255,255,255,.1);--fg:#f4f6f8;--sol:#8d95a6;--aksan:#f4f6f8;--aksan-fg:#111;background:#07090d!important;background-image:none!important}
+.kp-giris-gorsel{display:none!important}
+.kp-mark{font-style:normal!important;font-weight:560!important;font-size:44px!important;letter-spacing:-.04em!important}
+.kp-kat{background:#0e1218!important;border:1px solid rgba(255,255,255,.1)!important;border-radius:12px!important;box-shadow:none!important}
+.kp-dg{background:#f4f6f8!important;color:#111!important;border-radius:10px!important;box-shadow:none!important}
+.kp-alt{background:#07090d!important;border-top:1px solid rgba(255,255,255,.1)!important}
+.kp-alt button.on{box-shadow:inset 0 -2px 0 #f4f6f8!important;color:#fff!important}
+</style><script>
 (function(){
   function sakin(){
-    var nodes=document.querySelectorAll("div,p,a,button");
-    for(var i=0;i<nodes.length;i++){
-      var el=nodes[i];
-      var t=(el.innerText||"").trim();
-      if(t.length>140) continue;
-      if(/GitHub\u2019da yayında|GitHub'da yayında|Zip yedek indir/.test(t) && el.children.length<4) el.style.display="none";
-    }
+    document.querySelectorAll('.kp-giris-gorsel').forEach(function(el){el.remove();});
+    document.querySelectorAll('h2,h3,div,p').forEach(function(el){
+      var t=(el.textContent||'').trim();
+      if(t.indexOf('GitHub')===0 && t.length<80){
+        var card=el.closest('.kp-kat')||el.parentElement;
+        if(card) card.style.display='none';
+      }
+    });
   }
-  sakin(); setTimeout(sakin,400); setTimeout(sakin,1200);
+  sakin(); setTimeout(sakin,300); setTimeout(sakin,1000);
 })();
 <\/script>`;
 </script></body></html>
