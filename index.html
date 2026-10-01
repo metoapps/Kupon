@@ -9,35 +9,19 @@
     var html=await r.text();
     html=html.replace('sekme === "milli" && milliGorunumu(),','');
     html=html.replace('["milli", "Milli Ara"], ','');
+    html=html.replace('function CatismaFiguru() {', TOPFN+'function CatismaEski() {');
     html=html.replace("</body>", PRO+"</body>");
     document.open(); document.write(html); document.close();
-    var br=await fetch("top.b64");
-    var b64=(await br.text()).replace(/\s/g,"");
-    var bin=atob(b64);
-    var bytes=new Uint8Array(bin.length);
-    for(var i=0;i<bin.length;i++) bytes[i]=bin.charCodeAt(i);
-    var url=URL.createObjectURL(new Blob([bytes],{type:"image/png"}));
-    function topKoy(){
-      document.querySelectorAll(".pr-catisma-svg").forEach(function(el){
-        if(el.tagName==="IMG") return;
-        var img=document.createElement("img");
-        img.className="pr-catisma-svg";
-        img.src=url;
-        img.alt="Futbol topu";
-        img.style.cssText="width:56px;height:56px;object-fit:cover;border-radius:50%;display:block";
-        el.replaceWith(img);
-      });
-    }
-    topKoy();
-    setTimeout(topKoy,400);
-    setTimeout(topKoy,1200);
-    new MutationObserver(topKoy).observe(document.body,{childList:true,subtree:true});
   }catch(e){
     document.body.textContent="Yüklenemedi: "+e.message;
   }
 })();
+var TOPFN = 'function CatismaFiguru(){var s=function(t,p){return React.createElement(t,p);};return s("svg",{className:"pr-catisma-svg kp-top",viewBox:"0 0 64 64","aria-hidden":"true"},s("circle",{cx:"32",cy:"32",r:"30",fill:"#fff",stroke:"#111",strokeWidth:"1.4"}),s("polygon",{points:"32,11 40,17 37,27 27,27 24,17",fill:"#111"}),s("polygon",{points:"32,11 24,17 16,14 17.5,6.5 26,7.5",fill:"#111"}),s("polygon",{points:"32,11 40,17 48,14 46.5,6.5 38,7.5",fill:"#111"}),s("polygon",{points:"24,17 16,14 9,22 13,30 21,27",fill:"#111"}),s("polygon",{points:"40,17 48,14 55,22 51,30 43,27",fill:"#111"}),s("polygon",{points:"13,30 21,27 24,36 17,43 9,37",fill:"#111"}),s("polygon",{points:"51,30 43,27 40,36 47,43 55,37",fill:"#111"}),s("polygon",{points:"24,36 17,43 20,52 28,53 30,44",fill:"#111"}),s("polygon",{points:"40,36 47,43 44,52 36,53 34,44",fill:"#111"}),s("polygon",{points:"28,53 36,53 38,59 26,59",fill:"#111"}));}\n';
 var PRO = `<style id="kp-pro">
 html,body,#kok,.kp,.kp *{cursor:auto !important}
+.pr-catisma-svg{width:56px!important;height:56px!important}
+.kp-top{transform-origin:50% 50%;animation:kpDon 7s linear infinite}
+@keyframes kpDon{to{transform:rotate(360deg)}}
 html,body,#kok{background:#07090d!important}
 .kp{--bg:#07090d;--kat:#0e1218;--cizgi:rgba(255,255,255,.1);--fg:#f4f6f8;--sol:#8d95a6;--aksan:#f4f6f8;--aksan-fg:#111;background:#07090d!important;background-image:none!important}
 .kp-giris-gorsel{display:none!important}
