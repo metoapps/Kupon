@@ -11,7 +11,11 @@
     html=html.replace('["milli", "Milli Ara"], ','');
     html=html.replace('function CatismaFiguru() {', TOPFN+'function CatismaEski() {');
     html=html.replace('React.createElement("h1", { className: "kp-mark" }, "Kupon")', 'React.createElement("div",{style:{display:"flex",alignItems:"center",gap:14}},React.createElement(CatismaFiguru),React.createElement("h1", { className: "kp-mark" }, "Kupon"))');
-    html=html.replace("</body>", PRO+"</body>");
+    html=html.replace('--bg:#070B14;--kat:#10182A;--kat2:#162038;--cizgi:#2C3D63;','--bg:#07090d;--kat:#10141c;--kat2:#161c27;--cizgi:rgba(255,255,255,.08);');
+    html=html.replace('--aksan:#3EC6FF;--aksan-fg:#041018;--banko:#3EC6FF;','--aksan:#f3efe6;--aksan-fg:#12141a;--banko:#3EC6FF;');
+    html=html.replace('--kirmizi:#D97B86;--yesil:#3DDC97;','--kirmizi:#e07a86;--yesil:#3dba8b;');
+    html=html.replace('background-image:radial-gradient(90% 50% at 0% -10%,rgba(62,198,255,.22) 0%,transparent 55%),radial-gradient(70% 40% at 100% 0%,rgba(91,141,239,.16) 0%,transparent 50%);','background-image:none;');
+    html=html.replace('</body>', PRO+'</body>');
     document.open(); document.write(html); document.close();
     var ic='<circle cx="32" cy="32" r="30" fill="#fff" stroke="#111" stroke-width="1.4"/><polygon points="32,11 40,17 37,27 27,27 24,17" fill="#111"/><polygon points="32,11 24,17 16,14 17.5,6.5 26,7.5" fill="#111"/><polygon points="32,11 40,17 48,14 46.5,6.5 38,7.5" fill="#111"/><polygon points="24,17 16,14 9,22 13,30 21,27" fill="#111"/><polygon points="40,17 48,14 55,22 51,30 43,27" fill="#111"/><polygon points="13,30 21,27 24,36 17,43 9,37" fill="#111"/><polygon points="51,30 43,27 40,36 47,43 55,37" fill="#111"/><polygon points="24,36 17,43 20,52 28,53 30,44" fill="#111"/><polygon points="40,36 47,43 44,52 36,53 34,44" fill="#111"/><polygon points="28,53 36,53 38,59 26,59" fill="#111"/>';
     function doldur(){
@@ -19,24 +23,31 @@
         if(!el.querySelector('circle')) el.innerHTML=ic;
       });
     }
-    doldur();
-    setTimeout(doldur,250);
-    setTimeout(doldur,900);
+    doldur(); setTimeout(doldur,250); setTimeout(doldur,900);
     new MutationObserver(doldur).observe(document.body,{childList:true,subtree:true});
   }catch(e){
-    document.body.textContent="Yüklenemedi: "+e.message;
+    document.body.textContent='Yüklenemedi: '+e.message;
   }
 })();
-var TOPFN = 'function CatismaFiguru(){return React.createElement("svg",{className:"pr-catisma-svg kp-top",viewBox:"0 0 64 64","aria-hidden":"true"});}\n';
-var PRO = `<style id="kp-pro">
-html,body,#kok,.kp,.kp *{cursor:auto !important}
+var TOPFN='function CatismaFiguru(){return React.createElement("svg",{className:"pr-catisma-svg kp-top",viewBox:"0 0 64 64","aria-hidden":"true"});}\n';
+var PRO=`<style id="kp-pro">
+html,body,#kok{background:#07090d!important}
+.kp{background:#07090d!important;background-image:none!important;color:#f3efe6!important}
+.kp-kat,.kp-kagit{background:#10141c!important;border:1px solid rgba(255,255,255,.08)!important;border-radius:12px!important;box-shadow:none!important}
+.kp-kagit{border-top:1px solid rgba(255,255,255,.08)!important}
+.kp-et{color:#8e94a3!important}
+.kp-dg{background:#f3efe6!important;color:#12141a!important;box-shadow:none!important}
+.kp-banko,.kz-tutar{color:#3EC6FF!important}
+.pr-green{color:#3dba8b!important}
+.kp-alt{background:#07090d!important;border-top:1px solid rgba(255,255,255,.08)!important}
+.kp-alt button.on{color:#f3efe6!important;box-shadow:inset 0 -2px 0 #3EC6FF!important}
+.kp-gazete-name,.kp-gazete-bas,.kp-gazete-dip{text-shadow:none!important}
+.pr-catisma{border-bottom-color:rgba(255,255,255,.08)!important}
 .pr-catisma-svg,.kp-top{width:56px!important;height:56px!important;flex:none;display:block}
 .kp-top{transform-origin:50% 50%;animation:kpDon 7s linear infinite}
 @keyframes kpDon{to{transform:rotate(360deg)}}
-html,body,#kok{background:#07090d!important}
-.kp{background:#07090d!important;background-image:none!important}
 .kp-giris-gorsel{display:none!important}
-.kp-mark{font-style:normal!important;font-size:44px!important}
-.kp-alt{background:#07090d!important;border-top:1px solid rgba(255,255,255,.1)!important}
+.kp-mark{font-style:normal!important;font-size:44px!important;color:#f3efe6!important}
+html,body,#kok,.kp,.kp *{cursor:auto!important}
 </style>`;
 </script></body></html>
