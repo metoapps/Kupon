@@ -4228,8 +4228,13 @@ html,body,#kok{height:100%;height:100dvh;max-height:100%;max-height:100dvh;overf
                         React.createElement("p", null, aktif ? (teslimKapali ? "Bu haftanın teslim süresi doldu. Rekabeti takip et!" : "Maçlar yaklaşırken tahminlerini gözden geçir.") : "Yeni hafta açıldığında kuponun burada seni bekliyor."))),
                 React.createElement("div", { className: "kp-oyuncu-eylem" },
                     React.createElement("button", { type: "button", className: "kp-dg", onClick: () => setSekme("kupon") }, "Kuponuma git", React.createElement("span", { "aria-hidden": true }, " →")),
-                    React.createElement("button", { type: "button", className: "kp-dg2", onClick: () => setSekme("klasman") }, "Klasmanı gör"))),
-            aktif && React.createElement("div", { className: "kp-kat", role: "status" },
+                    React.createElement("button", { type: "button", className: "kp-dg2", onClick: () => setSekme("klasman") }, "Klasmanı gör")),
+                aktif && React.createElement("div", { className: "kp-oyuncu-teslim", role: "status" },
+                    React.createElement("span", { "aria-hidden": true }, teslimKapali ? "🔒" : "◷"),
+                    React.createElement("span", null, Number.isFinite(aktif.sonTeslim)
+                        ? (teslimKapali ? "Teslim kapandı · " : "Son teslim · ") + new Date(aktif.sonTeslim).toLocaleString("tr-TR", { timeZone: "Europe/Istanbul", dateStyle: "medium", timeStyle: "short" })
+                        : "Teslim saati henüz belirlenmedi"))),
+            aktif && (sekme !== "merkez" || MISAFIR || (!Number.isFinite(aktif.sonTeslim) && kurucuMu)) && React.createElement("div", { className: "kp-kat kp-teslim-durum", role: "status" },
                 Number.isFinite(aktif.sonTeslim)
                     ? (teslimKapali ? "Kupon teslimi kapandı · " : "Son teslim · ") + new Date(aktif.sonTeslim).toLocaleString("tr-TR", { timeZone: "Europe/Istanbul", dateStyle: "medium", timeStyle: "short" }) + " (Türkiye)"
                     : "Bu haftanın teslim saati belirlenmemiş. Yeni kupon alımı kapalı.",
@@ -4853,6 +4858,12 @@ html,body,#kok,.kp,.kp *{cursor:url("data:image/png;base64,iVBORw0KGgoAAAANSUhEU
 .kp-oyuncu-eylem button{width:100%;min-height:45px;font-size:13px}
 .kp-oyuncu-eylem .kp-dg2{margin:0}
 @media(max-width:350px){.kp-oyuncu-karsilama{padding:13px}.kp-oyuncu-eylem{grid-template-columns:1fr}.kp-oyuncu-ana{gap:8px}}
+</style>
+<style>
+/* Deadline placement v2: compact line within player hub; founder deadline controls remain reachable. */
+.kp-oyuncu-teslim{display:flex;align-items:center;gap:7px;margin-top:12px;padding-top:10px;border-top:1px solid rgba(255,255,255,.10);font:500 12px/1.45 Figtree,system-ui,sans-serif;color:#BDD2DF}
+.kp-oyuncu-teslim span:first-child{flex-shrink:0;color:#3EC6FF;font-size:14px}
+.kp-teslim-durum{padding:10px 13px!important;margin-bottom:12px!important;font-size:12px!important;line-height:1.55!important}
 </style>
 </body>
 </html>
