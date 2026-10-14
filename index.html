@@ -1004,6 +1004,7 @@ async function kuponHtmlIndir(){
 function Kupon() {
     const [ekran, setEkran] = useState("giris");
     const [sekme, setSekme] = useState("merkez");
+    const [digerAcik, setDigerAcik] = useState(false);
     const [lig, setLig] = useState("");
     const [isim, setIsim] = useState("");
     const [ben, setBen] = useState(null);
@@ -4755,7 +4756,13 @@ html,body,#kok{height:100%;height:100dvh;max-height:100%;max-height:100dvh;overf
                         React.createElement("button", { className: "kp-dg2", style: { width: "100%" }, disabled: !kurucuMu || mesgul, onClick: () => setResmiTaslak({}) }, "Resmi puanlar\u0131 gir")))),
                 React.createElement("button", { className: "kp-dg2", style: { width: "100%", marginTop: 20 }, onClick: () => { setEkran("giris"); setBen(null); setKurulum(null); setAktif(null); setTablo(null); setResmi(null); setMagaza(MAGAZA_BOS); setSatinOnay(null); setZekatMiktar(""); setZekatOnay(false); setErzakOnay(false); setAnket({}); setMansetKapali(false); setTransfer(null); setTrSat(null); setTrAl(null); setTrOnay(false); setAyakta(AYAKTA_BOS); setAySec(null); setAyGirisOnay(false); setAySecOnay(false); } }, "Ba\u015Fka gruba ge\u00E7")))),
         React.createElement("div", { className: "kp-surum", style: { textAlign: "center", padding: "8px 0 6px", fontSize: 10.5, color: "var(--sol)", fontFamily: "'JetBrains Mono',monospace", flexShrink: 0 } }, "sürüm " + SURUM)),
-        React.createElement("nav", { className: "kp-alt", "aria-label": "Bölümler" }, [["merkez", "Çatışma"], ["kupon", "Kupon"], ["ayakta", "RULET"], ["klasman", "Klasman"], ["magaza", "Mağaza"], ["portfoy", "Portföy"], ["lig", "Lig"]].map(([k, l]) => (React.createElement("button", { key: k, className: sekme === k ? "on" : "", onClick: () => setSekme(k) }, l))))));
+        React.createElement("nav", { className: "kp-alt", "aria-label": "Bölümler" },
+          React.createElement("div", { className: "kp-nav-desktop" }, [["merkez", "Çatışma"], ["kupon", "Kupon"], ["ayakta", "RULET"], ["klasman", "Klasman"], ["magaza", "Mağaza"], ["portfoy", "Portföy"], ["lig", "Lig"]].map(([k, l]) => React.createElement("button", { key: k, className: sekme === k ? "on" : "", "aria-current": sekme === k ? "page" : undefined, onClick: () => setSekme(k) }, l))),
+          React.createElement("div", { className: "kp-nav-mobile" },
+            [["merkez", "Çatışma"], ["kupon", "Kupon"], ["ayakta", "RULET"], ["klasman", "Klasman"]].map(([k, l]) => React.createElement("button", { key: k, className: sekme === k ? "on" : "", "aria-current": sekme === k ? "page" : undefined, onClick: () => { setDigerAcik(false); setSekme(k); } }, l)),
+            React.createElement("button", { type: "button", className: digerAcik || ["magaza", "portfoy", "lig"].includes(sekme) ? "on" : "", "aria-expanded": digerAcik, "aria-controls": "kp-diger-panel", onClick: () => setDigerAcik(!digerAcik) }, "Diğer", digerAcik ? " −" : " +")),
+          digerAcik && React.createElement("div", { className: "kp-diger-panel", id: "kp-diger-panel", "aria-label": "Diğer bölümler" },
+            [["magaza", "Mağaza"], ["portfoy", "Portföy"], ["lig", "Lig"]].map(([k, l]) => React.createElement("button", { key: k, className: sekme === k ? "on" : "", "aria-current": sekme === k ? "page" : undefined, onClick: () => { setSekme(k); setDigerAcik(false); } }, l))))));
 }
 
 
@@ -4803,6 +4810,23 @@ html,body,#kok,.kp,.kp *{cursor:url("data:image/png;base64,iVBORw0KGgoAAAANSUhEU
 }
 .kp button:focus-visible,.kp a:focus-visible,.kp select:focus-visible,.kp input:focus-visible,.kp [role="button"]:focus-visible{outline:2px solid #3EC6FF!important;outline-offset:3px!important;}
 @media (prefers-reduced-motion:reduce){.kp-alt{scroll-behavior:auto!important;scroll-snap-type:none!important;}}
+</style>
+<style>
+/* Kupon UX phase 2: adaptive main navigation; existing screens and rules untouched */
+.kp-nav-desktop{display:flex;align-items:stretch;flex:1;min-width:0}
+.kp-nav-desktop>button{flex:1 0 auto}
+.kp-nav-mobile{display:none}
+.kp-diger-panel{display:none}
+@media(max-width:899px){
+ .kp-alt{overflow:visible!important;position:relative;display:block!important;padding:4px 4px calc(8px + env(safe-area-inset-bottom))!important}
+ .kp-nav-desktop{display:none!important}
+ .kp-nav-mobile{display:grid!important;grid-template-columns:repeat(5,minmax(0,1fr));width:100%;gap:2px}
+ .kp-nav-mobile>button{width:100%;min-width:0!important;min-height:52px!important;font-size:clamp(10px,2.8vw,12px)!important;letter-spacing:0!important;padding:10px 2px!important;white-space:nowrap}
+ .kp-diger-panel{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:5px;position:absolute;bottom:calc(100% + 6px);left:8px;right:8px;z-index:60;padding:10px;background:#101922;border:1px solid rgba(62,198,255,.3);border-radius:12px;box-shadow:0 -12px 32px rgba(0,0,0,.38)}
+ .kp-diger-panel>button{min-width:0;min-height:48px;background:#1b2835;border-radius:8px;font-size:13px;white-space:nowrap}
+ .kp-diger-panel>button.on{color:#3EC6FF;background:rgba(62,198,255,.13)}
+}
+@media(min-width:900px){.kp-diger-panel{display:none!important}}
 </style>
 </body>
 </html>
