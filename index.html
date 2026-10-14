@@ -4790,5 +4790,19 @@ html,body,#kok,.kp,.kp *{cursor:url("data:image/png;base64,iVBORw0KGgoAAAANSUhEU
 #kp-ses-dugme:active{transform:scale(.92)}
 @media (min-width:1100px){#kp-ses-dugme{bottom:18px;right:18px}}
 @media (prefers-reduced-motion:reduce){.kp-tb{display:none}}
-</style></body>
+</style>
+<style>
+/* Kupon UX mobile-first v1 — 2026-10-14: only presentation, no scoring/data changes */
+@media(max-width:899px){
+  .kp-alt{scroll-snap-type:x proximity;scroll-padding-inline:8px;padding-left:8px;padding-right:8px;gap:4px;scrollbar-width:thin!important;scrollbar-color:rgba(62,198,255,.36) transparent!important;}
+  .kp-alt button{font-size:12px!important;min-width:72px;min-height:52px;padding:12px 11px;letter-spacing:.015em;scroll-snap-align:start;position:relative;}
+  .kp-alt button.on{font-weight:700!important;background:rgba(62,198,255,.08)!important;border-radius:8px;}
+  .kp-sbtn{min-width:38px!important;width:38px!important;min-height:44px!important;}
+  .kp-joker{min-width:38px!important;width:38px!important;min-height:44px!important;}
+  .kp-alt:focus-within{outline-offset:-2px;}
+}
+.kp button:focus-visible,.kp a:focus-visible,.kp select:focus-visible,.kp input:focus-visible,.kp [role="button"]:focus-visible{outline:2px solid #3EC6FF!important;outline-offset:3px!important;}
+@media (prefers-reduced-motion:reduce){.kp-alt{scroll-behavior:auto!important;scroll-snap-type:none!important;}}
+</style>
+</body>
 </html>
