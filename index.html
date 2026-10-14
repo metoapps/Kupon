@@ -4243,8 +4243,7 @@ html,body,#kok{height:100%;height:100dvh;max-height:100%;max-height:100dvh;overf
                     ? (teslimKapali ? "Kupon teslimi kapandı · " : "Son teslim · ") + new Date(aktif.sonTeslim).toLocaleString("tr-TR", { timeZone: "Europe/Istanbul", dateStyle: "medium", timeStyle: "short" }) + " (Türkiye)"
                     : "Bu haftanın teslim saati belirlenmemiş. Yeni kupon alımı kapalı.",
                 !Number.isFinite(aktif.sonTeslim) && kurucuMu && React.createElement(React.Fragment, null,
-                    TeslimAlani(), React.createElement("button", { className: "kp-dg2", disabled: mesgul, onClick: () => guvenliIslem(teslimBelirle) }, "Teslim saatini kaydet"))),
-            kerizSerit()),
+                    TeslimAlani(), React.createElement("button", { className: "kp-dg2", disabled: mesgul, onClick: () => guvenliIslem(teslimBelirle) }, "Teslim saatini kaydet")))),
             resmi && resmi.tabloIzi !== KAnaliz.stamp(tablo.haftalar) && React.createElement("div", { className: "kp-kat", role: "status" }, "Resmî puan kaydı eski. Portföy şimdilik girilen maç sonuçlarından hesaplanıyor; eksik maç varsa kurucu resmî puanları güncellemeli."),
             sekme === "merkez" && merkezGorunumu(),
             sekme === "kupon" && aktif && canliPencere() && React.createElement("div",{className:"kp-kat"},
