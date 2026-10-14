@@ -3367,24 +3367,9 @@ html,body,#kok{height:100%;height:100dvh;max-height:100%;max-height:100dvh;overf
                 React.createElement("header", { className: "kp-masthead" },
                     React.createElement("div", { className: "kp-mast-meta" }, new Date().toLocaleDateString("tr-TR", { weekday: "long", day: "numeric", month: "long", year: "numeric", timeZone: "Europe/Istanbul" }), "  ·  Süper Lig 2026–27"),
                     React.createElement("div",{style:{display:"flex",alignItems:"center",gap:14}},React.createElement(CatismaFiguru),React.createElement("h1", { className: "kp-mark" }, "Kupon")),
-                    React.createElement("p", { className: "kp-mast-sub" }, "Haftalık tahmin  ·  sezonluk portföy")),
+                    React.createElement("p", { className: "kp-mast-sub" }, "Arkadaşlarla tahmin, rekabet ve haftalık heyecan"),
+                    React.createElement("div", { className: "kp-giris-etiketler" }, React.createElement("span", null, "⚽ Haftalık kupon"), React.createElement("span", null, "🏆 Klasman"), React.createElement("span", null, "🎯 RULET"))),
                 React.createElement(Bilgi, null),
-                !MISAFIR && React.createElement("div", { className: "kp-kaydet" },
-                    React.createElement("b", null, "GitHub’da yayında"),
-                    React.createElement("p", null, "Güncel Kupon, RULET dahil, senin Pages adresinde. İndirme tuşuna gerek yok."),
-                    React.createElement("div", { className: "sira" },
-                        React.createElement("a", {
-                            className: "kp-dg",
-                            href: "https://metoapps.github.io/Kupon/",
-                            target: "_blank",
-                            rel: "noopener noreferrer",
-                        }, "Sayfayı aç"),
-                        React.createElement("a", {
-                            className: "kp-dg2",
-                            href: "/kupon-github.zip",
-                            download: "kupon-github.zip",
-                            style: { width: "100%" },
-                        }, "Zip yedek indir"))),
                 React.createElement("div", { className: "kp-giris-gorsel" },
                     React.createElement("img", { src: GIRIS_GORSEL, alt: "Stat ışığında kupon kâğıdı ve altın külçe" })),
                 React.createElement("p", { className: "pr-muted", style: { marginTop: 0 } },
@@ -3392,10 +3377,12 @@ html,body,#kok{height:100%;height:100dvh;max-height:100%;max-height:100dvh;overf
                         ? "PIN yok, yazma yok. Kim kupon yatırdı ve klasman görünür; tahminler maç bitene kadar gizli."
                         : ("Her hafta dokuz maça skor yaz, birini banko seç. Tam skor 5, fark 3, sonuç 2 — banko katlar. Sezon başında " + KREDI + " krediyle dört takım al; lig puanları da senin olur.")),
                 React.createElement("div", { style: { marginTop: 26 } },
+                    React.createElement("div", { className: "kp-giris-adim" }, "01 / Grubunu bul"),
                     React.createElement("div", { className: "kp-et" }, "Grup kodu"),
                     React.createElement("input", { className: "kp-gir kp-mono", value: lig, onChange: e => setLig(e.target.value.toLowerCase().replace(/[^a-z0-9]/g, "")), placeholder: "besikodu", maxLength: 20 }),
                     React.createElement("div", { style: { fontSize: 11.5, color: "var(--sol)", marginTop: 7 } }, "Ayn\u0131 kodu girenler ayn\u0131 ligde. Gruba bu kodu at.")),
                 !MISAFIR && React.createElement("div", { style: { marginTop: 18 } },
+                    React.createElement("div", { className: "kp-giris-adim" }, "02 / Oyuncunu seç"),
                     React.createElement("div", { className: "kp-et" }, "Ad\u0131n"),
                     React.createElement("input", { className: "kp-gir", value: isim, onChange: e => setIsim(e.target.value), placeholder: "Meto", maxLength: 16 }),
                     React.createElement("div", { style: { display: "flex", gap: 6, marginTop: 8, flexWrap: "wrap" } }, TAKMA_ADLAR.map(n => (React.createElement("button", { key: n, className: "kp-dg2", style: { padding: "6px 12px 6px 6px", fontSize: 12.5, display: "flex", alignItems: "center", gap: 8, borderColor: isim === n ? "var(--aksan)" : "var(--cizgi)", color: isim === n ? "var(--aksan)" : "var(--fg)" }, onClick: () => setIsim(n) },
@@ -4828,6 +4815,18 @@ html,body,#kok,.kp,.kp *{cursor:url("data:image/png;base64,iVBORw0KGgoAAAANSUhEU
 }
 @media(min-width:900px){.kp-diger-panel{display:none!important}}
 @media(min-width:1100px){.kp-nav-desktop{flex-direction:column;width:100%;flex:0 0 auto}.kp-nav-desktop>button{flex:0 0 auto;width:100%;text-align:left}}
+</style>
+<style>
+/* Kupon UX phase 3: warm, clear entry without changing identity or data */
+.kp-giris-etiketler{display:flex;flex-wrap:wrap;gap:7px;margin:15px 0 7px}
+.kp-giris-etiketler span{display:inline-flex;align-items:center;min-height:30px;padding:5px 10px;border:1px solid rgba(62,198,255,.19);border-radius:999px;background:rgba(62,198,255,.065);color:#DDEAF5;font:600 11.5px Figtree,system-ui,sans-serif}
+.kp-giris-adim{font:700 11px 'IBM Plex Mono',monospace;letter-spacing:.08em;color:#3EC6FF;margin:0 0 9px}
+.kp-masthead{padding-top:12px;padding-bottom:16px}
+.kp-mast-sub{font-size:clamp(14px,3.7vw,16px);line-height:1.5;color:#B7C6D8;max-width:35ch}
+.kp-giris-gorsel{border-radius:14px;box-shadow:0 12px 36px rgba(0,0,0,.18)}
+.kp-giris-gorsel img{max-height:260px;object-fit:cover;object-position:center}
+.kp-giris-gorsel + .pr-muted{font-size:13.5px!important;line-height:1.7!important;color:#B7C6D8!important}
+@media(max-width:480px){.kp-giris-etiketler span{font-size:11px;padding:5px 8px}.kp-giris-gorsel img{max-height:200px}}
 </style>
 </body>
 </html>
