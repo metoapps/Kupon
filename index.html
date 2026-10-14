@@ -1024,6 +1024,7 @@ function Kupon() {
     const [resmi, setResmi] = useState(null);
     const [resmiTaslak, setResmiTaslak] = useState(null);
     const [kuponOnay, setKuponOnay] = useState(false);
+    const [kuponSonrasiRulet, setKuponSonrasiRulet] = useState(false);
     const [portfoyAcik, setPortfoyAcik] = useState(false);
     const [pinEkrani, setPinEkrani] = useState(null);
     const [pin, setPin] = useState("");
@@ -1744,8 +1745,10 @@ function Kupon() {
         await depo.kosulluSet(`kpn:${lig}:kupon:${aktif.hafta}:${ben.slug}`, JSON.stringify(k), null);
         setBenimKupon(k);
         setKuponlar({ ...kuponlar, [ben.slug]: k });
-        setBilgi("Kuponun yatırıldı ve kilitlendi. Bol şans.");
+        setBilgi("Kuponun kilitlendi! Olay Kartın kaydedildi. Şimdi RULET sırası.");
         setKuponOnay(false);
+        setKuponSonrasiRulet(true);
+        setSekme("ayakta");
     }
     /* ---------- haftayı kapat ---------- */
     /* Kendi takım kodumuzu sözlükteki anahtara çevirir (GÖZ -> GOZ gibi) */
@@ -2720,6 +2723,7 @@ function Kupon() {
         }, T(idx).ad + " kilitlendi. Elin gizli — maçın bitince masaya düşer.");
         setAySec(null);
         setAySecOnay(false);
+        setKuponSonrasiRulet(false);
         await gunlukYaz(audit("Rulet kilit", ben.isim + " · kör · " + aktif.hafta + ". hf"));
     }
     async function ayaktaSonucIsle(h, opts) {
@@ -4634,7 +4638,12 @@ html,body,#kok{height:100%;height:100dvh;max-height:100%;max-height:100dvh;overf
                     })))),
             sekme === "magaza" && magazaGorunumu(),
             
-            sekme === "ayakta" && ayaktaGorunumu(),
+            sekme === "ayakta" && kuponSonrasiRulet && aktif && React.createElement("div", { className: "kp-akis-uyari", role: "status" },
+                React.createElement("div", { className: "kp-akis-baslik" }, "⚽ Kupon tamam · 🃏 Olay Kartı tamam · 🎯 RULET sırası"),
+                React.createElement("p", null, "Kuponun kaydedildi. Şimdi RULET'e katılıp haftanın takımını seç ve kilitle. RULET girişinde oyun içi kasa bedeli alınabilir."),
+                (!ayaktaGirisAcik() && !((ayakta.girenler || []).includes(ben.slug))) && React.createElement("p", null, "Bu tur şu anda katılıma kapalı; sonraki turu bekleyebilirsin."),
+                React.createElement("button", { className: "kp-dg2", onClick: () => setKuponSonrasiRulet(false) }, "Bilgiyi kapat")),
+                        sekme === "ayakta" && ayaktaGorunumu(),
             sekme === "portfoy" && (React.createElement(React.Fragment, null,
                 transferGorunumu(),
                 !portfoyAcik && (React.createElement("div", { className: "kp-kat", style: { borderColor: "var(--banko)", background: "rgba(245,165,36,.07)" } },
@@ -4864,6 +4873,13 @@ html,body,#kok,.kp,.kp *{cursor:url("data:image/png;base64,iVBORw0KGgoAAAANSUhEU
 .kp-oyuncu-teslim{display:flex;align-items:center;gap:7px;margin-top:12px;padding-top:10px;border-top:1px solid rgba(255,255,255,.10);font:500 12px/1.45 Figtree,system-ui,sans-serif;color:#BDD2DF}
 .kp-oyuncu-teslim span:first-child{flex-shrink:0;color:#3EC6FF;font-size:14px}
 .kp-teslim-durum{padding:10px 13px!important;margin-bottom:12px!important;font-size:12px!important;line-height:1.55!important}
+</style>
+<style>
+/* Guided kupon -> card -> RULET progression, no automatic paid entry */
+.kp-akis-uyari{padding:15px;border:1px solid rgba(62,198,255,.4);border-radius:14px;background:linear-gradient(135deg,#123249,#101923);margin:0 0 13px;color:#EAF4FC}
+.kp-akis-baslik{font:700 13px/1.5 Figtree,sans-serif;color:#8BE0FF}
+.kp-akis-uyari p{font:400 13px/1.6 Figtree,sans-serif;color:#C6D8E4;margin:9px 0}
+.kp-akis-uyari button{width:100%;margin-top:8px}
 </style>
 </body>
 </html>
