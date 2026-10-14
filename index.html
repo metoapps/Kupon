@@ -1242,7 +1242,32 @@ function Kupon() {
         const who=istatistikKisi||ben.slug,st=KAnaliz.stats(weeks,who),opponents=kurulum.oyuncular.filter(o=>o.slug!==ben.slug),other=opponents.some(o=>o.slug===rakip)?rakip:(opponents[0] && opponents[0].slug);
         const du=other?KAnaliz.duel(weeks,ben.slug,other):null;
         const match=(h,i)=>T(h.maclar[i].e).ad+' '+h.sonuclar[i].join('–')+' '+T(h.maclar[i].d).ad;
+        const latest=KAnaliz.summary(weeks,weeks.length-1);
+        const siralama=latest && Array.isArray(latest.hareket) ? latest.hareket.slice().sort((a,b)=>a.sira-b.sira).slice(0,5) : [];
+        const arena=H('section',{className:'kp-arena', 'aria-label':'Sezon rekabet panosu'},
+            H('div',{className:'kp-arena-bas'},
+                H('div',null,H('span',{className:'kp-arena-etiket'},'ARKADAŞ LİGİ / CANLI REKABET'),
+                    H('h2',null,'Sahada kim önde?'),
+                    H('p',null,weeks.length ? weeks.length+' tamamlanmış hafta · Tahmin puanları üzerinden' : 'İlk hafta sonuçları bekleniyor')),
+                H('button',{type:'button',className:'kp-arena-link',onClick:()=>setMerkezSekme('rekabet')},'Rakibimle karşılaştır →')),
+            !latest ? H('div',{className:'kp-arena-bos'},'İlk hafta kapanınca liderlik tablosu burada oluşacak.') :
+            H('div',{className:'kp-arena-grid'},
+                H('div',{className:'kp-arena-lider'},
+                    H('span',{className:'kp-arena-etiket'},latest.lider.length>1?'HAFTANIN ORTAK LİDERLERİ':'HAFTANIN LİDERİ'),
+                    H('div',{className:'kp-arena-kupa','aria-hidden':'true'},'🏆'),
+                    H('strong',null,latest.lider.length?latest.lider.map(x=>name(x.slug)).join(' & '):'Henüz lider yok'),
+                    H('span',{className:'kp-arena-puan'},((latest.lider[0] && latest.lider[0].puan)||0)+' puan'),
+                    H('small',null,latest.h.no+'. haftanın kupon sonucu')),
+                H('div',{className:'kp-arena-sira'},
+                    H('div',{className:'kp-arena-etiket'},'GENEL TAHMİN KLASMANI'),
+                    siralama.length ? siralama.map((x,i)=>H('div',{className:'kp-arena-satir',key:x.slug},
+                        H('span',{className:'kp-arena-rank'},x.sira),
+                        H(Yuz,{isim:name(x.slug),boy:34,vurgu:x.slug===ben.slug}),
+                        H('span',{className:'kp-arena-ad'},name(x.slug),x.slug===ben.slug?' · Sen':''),
+                        H('span',{className:'kp-arena-degisim'},x.fark===null?'Yeni':x.fark>0?'↑ '+x.fark:x.fark<0?'↓ '+Math.abs(x.fark):'—'))) : H('p',null,'Henüz sıralama yok.'),
+                    H('button',{type:'button',className:'kp-arena-link',onClick:()=>setMerkezSekme('ozet')},'Haftalık ayrıntıları gör →'))));
         return H('section',{className:'pr-root'},
+            arena,
             H('div',{className:'pr-hero'},
                 H('div',{className:'pr-catisma'},React.createElement(CatismaFiguru),H('h1',{className:'kp-h'},'Sezon merkezi.')),
                 gazeteGorunumu(true)),
@@ -4922,6 +4947,30 @@ html,body,#kok,.kp,.kp *{cursor:url("data:image/png;base64,iVBORw0KGgoAAAANSUhEU
 <style>
 .kp-rulet-bekliyor{padding:16px 18px;background:rgba(62,198,255,.045);border:1px dashed rgba(62,198,255,.26);border-radius:12px}
 .kp-rulet-bekliyor p{font:400 13px/1.65 Figtree,sans-serif;color:#BCCADA;margin:0}
+</style>
+<style>
+/* Competition arena v1: read-only summary drawn from completed match weeks */
+.kp-arena{border:1px solid rgba(62,198,255,.23);border-radius:18px;overflow:hidden;background:radial-gradient(ellipse at 90% 0%,rgba(62,198,255,.11),transparent 58%),linear-gradient(145deg,#132332,#0D141E);margin-bottom:20px;color:#F4F0E6}
+.kp-arena-bas{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:23px 25px;border-bottom:1px solid rgba(255,255,255,.1)}
+.kp-arena-bas h2{font:italic 700 clamp(23px,3vw,35px)/1.1 Fraunces,Georgia,serif;margin:8px 0 6px}.kp-arena-bas p{font:400 12.5px Figtree,sans-serif;color:#ADC0CF;margin:0}
+.kp-arena-etiket{font:700 10px 'IBM Plex Mono',monospace;letter-spacing:.1em;color:#76D8F6}
+.kp-arena-link{border:1px solid rgba(62,198,255,.35);border-radius:9px;background:rgba(62,198,255,.07);color:#D6F4FF;min-height:40px;padding:9px 13px;font:600 12px Figtree,sans-serif;cursor:pointer}
+.kp-arena-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.25fr);gap:0}
+.kp-arena-lider{padding:25px;display:flex;flex-direction:column;align-items:flex-start;justify-content:center;gap:8px;border-right:1px solid rgba(255,255,255,.09)}
+.kp-arena-kupa{font-size:37px;line-height:1.25;animation:kpArenaKupa .6s ease-out both}
+.kp-arena-lider strong{font:700 clamp(21px,2.7vw,31px) Fraunces,Georgia,serif;overflow-wrap:anywhere}
+.kp-arena-puan{font:700 22px 'IBM Plex Mono',monospace;color:#F5C46A}.kp-arena-lider small{color:#A6B9C9;font:400 11px Figtree,sans-serif}
+.kp-arena-sira{padding:21px 23px;min-width:0}.kp-arena-sira>.kp-arena-etiket{display:block;margin-bottom:12px}
+.kp-arena-satir{display:flex;gap:10px;align-items:center;min-height:49px;padding:7px 0;border-bottom:1px solid rgba(255,255,255,.075)}
+.kp-arena-rank{font:700 13px 'IBM Plex Mono',monospace;color:#F5C46A;width:20px;flex-shrink:0}
+.kp-arena-ad{font:600 13px Figtree,sans-serif;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.kp-arena-degisim{font:600 12px 'IBM Plex Mono',monospace;color:#AFC6D2}
+.kp-arena-sira>.kp-arena-link{margin-top:15px}
+.kp-arena-bos{padding:24px;color:#BFD0DD;font-size:14px}
+@keyframes kpArenaKupa{from{transform:translateY(8px) scale(.85);opacity:.35}to{transform:none;opacity:1}}
+@media(prefers-reduced-motion:reduce){.kp-arena-kupa{animation:none}}
+@media(max-width:740px){.kp-arena-bas{padding:17px;align-items:flex-start;flex-direction:column}.kp-arena-grid{grid-template-columns:1fr}.kp-arena-lider{border-right:0;border-bottom:1px solid rgba(255,255,255,.09);padding:17px}.kp-arena-sira{padding:17px}}
+@media(min-width:1100px){.kp-arena{box-shadow:0 18px 48px rgba(0,0,0,.2);margin-bottom:25px}.kp-arena-bas{padding:27px 31px}.kp-arena-lider{padding:32px}.kp-arena-sira{padding:28px 32px}}
 </style>
 </body>
 </html>
