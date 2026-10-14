@@ -4217,6 +4217,18 @@ html,body,#kok{height:100%;height:100dvh;max-height:100%;max-height:100dvh;overf
         React.createElement(Bilgi, null),
         React.createElement("div", { className: "kp-ic" },
             React.createElement("div", { className: "kp-masa" },
+            sekme === "merkez" && !MISAFIR && ben && React.createElement("section", { className: "kp-oyuncu-karsilama", "aria-label": "Oyuncu merkezi" },
+                React.createElement("div", { className: "kp-oyuncu-ust" },
+                    React.createElement("span", { className: "kp-oyuncu-eyebrow" }, "OYUNCU MERKEZİ"),
+                    React.createElement("span", { className: "kp-oyuncu-lig" }, lig.toUpperCase())),
+                React.createElement("div", { className: "kp-oyuncu-ana" },
+                    React.createElement(Yuz, { isim: ben.isim, boy: 52, vurgu: true }),
+                    React.createElement("div", null,
+                        React.createElement("h2", null, "Sahne senin, " + ben.isim + "!"),
+                        React.createElement("p", null, aktif ? (teslimKapali ? "Bu haftanın teslim süresi doldu. Rekabeti takip et!" : "Maçlar yaklaşırken tahminlerini gözden geçir.") : "Yeni hafta açıldığında kuponun burada seni bekliyor."))),
+                React.createElement("div", { className: "kp-oyuncu-eylem" },
+                    React.createElement("button", { type: "button", className: "kp-dg", onClick: () => setSekme("kupon") }, "Kuponuma git", React.createElement("span", { "aria-hidden": true }, " →")),
+                    React.createElement("button", { type: "button", className: "kp-dg2", onClick: () => setSekme("klasman") }, "Klasmanı gör"))),
             aktif && React.createElement("div", { className: "kp-kat", role: "status" },
                 Number.isFinite(aktif.sonTeslim)
                     ? (teslimKapali ? "Kupon teslimi kapandı · " : "Son teslim · ") + new Date(aktif.sonTeslim).toLocaleString("tr-TR", { timeZone: "Europe/Istanbul", dateStyle: "medium", timeStyle: "short" }) + " (Türkiye)"
@@ -4827,6 +4839,20 @@ html,body,#kok,.kp,.kp *{cursor:url("data:image/png;base64,iVBORw0KGgoAAAANSUhEU
 .kp-giris-gorsel img{max-height:260px;object-fit:cover;object-position:center}
 .kp-giris-gorsel + .pr-muted{font-size:13.5px!important;line-height:1.7!important;color:#B7C6D8!important}
 @media(max-width:480px){.kp-giris-etiketler span{font-size:11px;padding:5px 8px}.kp-giris-gorsel img{max-height:200px}}
+</style>
+<style>
+/* Kupon UX phase 4 — competition hub. Decorative layout only. */
+.kp-oyuncu-karsilama{background:radial-gradient(ellipse at 95% 0%,rgba(62,198,255,.13),transparent 55%),linear-gradient(135deg,#14202b 0%,#10141c 65%);border:1px solid rgba(62,198,255,.23);border-radius:16px;padding:18px;margin-bottom:16px;box-shadow:0 12px 30px rgba(0,0,0,.13)}
+.kp-oyuncu-ust{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:15px}
+.kp-oyuncu-eyebrow{font:700 10px 'IBM Plex Mono',monospace;letter-spacing:.13em;color:#3EC6FF}
+.kp-oyuncu-lig{font:600 11px Figtree,sans-serif;color:#AFBDCC;overflow-wrap:anywhere}
+.kp-oyuncu-ana{display:flex;align-items:center;gap:12px}
+.kp-oyuncu-ana h2{font:700 clamp(19px,5vw,25px) Fraunces,Georgia,serif;color:#F3EEE4;line-height:1.2;margin:0 0 5px}
+.kp-oyuncu-ana p{font:400 13px/1.5 Figtree,sans-serif;color:#BCCADA;margin:0}
+.kp-oyuncu-eylem{display:grid;grid-template-columns:1.4fr 1fr;gap:9px;margin-top:17px}
+.kp-oyuncu-eylem button{width:100%;min-height:45px;font-size:13px}
+.kp-oyuncu-eylem .kp-dg2{margin:0}
+@media(max-width:350px){.kp-oyuncu-karsilama{padding:13px}.kp-oyuncu-eylem{grid-template-columns:1fr}.kp-oyuncu-ana{gap:8px}}
 </style>
 </body>
 </html>
