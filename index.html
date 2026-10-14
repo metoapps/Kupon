@@ -4424,7 +4424,7 @@ html,body,#kok{height:100%;height:100dvh;max-height:100%;max-height:100dvh;overf
                             React.createElement("button", { className: "kp-dg2", style: { width: "100%" }, onClick: () => setSonucGiris(aktif.maclar.map(() => [null, null])) }, "Sonu\u00E7lar\u0131 gir"))
                         : React.createElement("p", { style: { fontSize: 13, color: "var(--sol)", lineHeight: 1.6, margin: 0 } },
                             "Sonu\u00E7lar\u0131 ", React.createElement("b", { style: { color: "var(--fg)" } }, kurucuAdi), " giriyor. Ma\u00E7lar bitince hafta kapan\u0131r ve puanlar burada g\u00f6r\u00fcn\u00fcr.")))))),
-            sekme === "kupon" && aktif && benimKupon && React.createElement("section", { className: "kp-rulet-gomulu", id: "kp-rulet-kart", "aria-label": "Kuponun RULET oyunu" },
+            sekme === "kupon" && aktif && React.createElement("section", { className: "kp-rulet-gomulu", id: "kp-rulet-kart", "aria-label": "Kuponun RULET oyunu" },
                 React.createElement("div", { className: "kp-rulet-gomulu-bas" },
                     React.createElement("span", { className: "kp-oyuncu-eyebrow" }, "KUPONUN DEVAMI · 03 / 03"),
                     React.createElement("h2", null, "🎯 RULET"),
@@ -4432,7 +4432,9 @@ html,body,#kok{height:100%;height:100dvh;max-height:100%;max-height:100dvh;overf
                 kuponSonrasiRulet && React.createElement("div", { className: "kp-akis-uyari", role: "status" },
                     React.createElement("div", { className: "kp-akis-baslik" }, "⚽ Kupon kaydedildi · 🃏 Olay Kartı seçildi · 🎯 RULET sırası"),
                     React.createElement("p", null, "RULET'e katılımda oyun içi kasa ücreti uygulanabilir. Katılım ve takım kilitleme işlemleri kendi onayına bağlıdır.")),
-                ayaktaGorunumu()),
+                benimKupon ? ayaktaGorunumu() : React.createElement("div", { className: "kp-rulet-bekliyor" },
+                    React.createElement("div", { className: "kp-et" }, "Kuponu tamamlayınca açılır"),
+                    React.createElement("p", null, "Önce skor tahminlerini ve Olay Kartını seçip kuponunu yatır. Ardından RULET'e burada katılabilir ve takım seçebilirsin."))),
             sekme === "klasman" && (React.createElement(React.Fragment, null,
                 React.createElement("div", { className: "kp-odul" },
                     React.createElement("img", { className: "kp-odul-bg", src: GIRIS_GORSEL, alt: "" }),
@@ -4916,6 +4918,10 @@ html,body,#kok,.kp,.kp *{cursor:url("data:image/png;base64,iVBORw0KGgoAAAANSUhEU
  .kp-h{letter-spacing:-.02em}
 }
 @media(min-width:1450px){.kp-ic{max-width:1380px!important}.kp-rulet-gomulu{padding:32px 42px}}
+</style>
+<style>
+.kp-rulet-bekliyor{padding:16px 18px;background:rgba(62,198,255,.045);border:1px dashed rgba(62,198,255,.26);border-radius:12px}
+.kp-rulet-bekliyor p{font:400 13px/1.65 Figtree,sans-serif;color:#BCCADA;margin:0}
 </style>
 </body>
 </html>
