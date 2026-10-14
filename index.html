@@ -1025,6 +1025,12 @@ function Kupon() {
     const [resmiTaslak, setResmiTaslak] = useState(null);
     const [kuponOnay, setKuponOnay] = useState(false);
     const [kuponSonrasiRulet, setKuponSonrasiRulet] = useState(false);
+    useEffect(() => {
+        if (kuponSonrasiRulet && sekme === "kupon") {
+            const hedef = document.getElementById("kp-rulet-kart");
+            if (hedef) hedef.scrollIntoView({ behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "start" });
+        }
+    }, [kuponSonrasiRulet, sekme]);
     const [portfoyAcik, setPortfoyAcik] = useState(false);
     const [pinEkrani, setPinEkrani] = useState(null);
     const [pin, setPin] = useState("");
@@ -1748,7 +1754,7 @@ function Kupon() {
         setBilgi("Kuponun kilitlendi! Olay Kartın kaydedildi. Şimdi RULET sırası.");
         setKuponOnay(false);
         setKuponSonrasiRulet(true);
-        setSekme("ayakta");
+        setSekme("kupon");
     }
     /* ---------- haftayı kapat ---------- */
     /* Kendi takım kodumuzu sözlükteki anahtara çevirir (GÖZ -> GOZ gibi) */
@@ -4418,6 +4424,15 @@ html,body,#kok{height:100%;height:100dvh;max-height:100%;max-height:100dvh;overf
                             React.createElement("button", { className: "kp-dg2", style: { width: "100%" }, onClick: () => setSonucGiris(aktif.maclar.map(() => [null, null])) }, "Sonu\u00E7lar\u0131 gir"))
                         : React.createElement("p", { style: { fontSize: 13, color: "var(--sol)", lineHeight: 1.6, margin: 0 } },
                             "Sonu\u00E7lar\u0131 ", React.createElement("b", { style: { color: "var(--fg)" } }, kurucuAdi), " giriyor. Ma\u00E7lar bitince hafta kapan\u0131r ve puanlar burada g\u00f6r\u00fcn\u00fcr.")))))),
+            sekme === "kupon" && aktif && benimKupon && React.createElement("section", { className: "kp-rulet-gomulu", id: "kp-rulet-kart", "aria-label": "Kuponun RULET oyunu" },
+                React.createElement("div", { className: "kp-rulet-gomulu-bas" },
+                    React.createElement("span", { className: "kp-oyuncu-eyebrow" }, "KUPONUN DEVAMI · 03 / 03"),
+                    React.createElement("h2", null, "🎯 RULET"),
+                    React.createElement("p", null, "Olay Kartını ve kuponunu tamamladın. RULET artık aynı sayfanın son aşaması. Takım seçimini burada yapabilirsin.")),
+                kuponSonrasiRulet && React.createElement("div", { className: "kp-akis-uyari", role: "status" },
+                    React.createElement("div", { className: "kp-akis-baslik" }, "⚽ Kupon kaydedildi · 🃏 Olay Kartı seçildi · 🎯 RULET sırası"),
+                    React.createElement("p", null, "RULET'e katılımda oyun içi kasa ücreti uygulanabilir. Katılım ve takım kilitleme işlemleri kendi onayına bağlıdır.")),
+                ayaktaGorunumu()),
             sekme === "klasman" && (React.createElement(React.Fragment, null,
                 React.createElement("div", { className: "kp-odul" },
                     React.createElement("img", { className: "kp-odul-bg", src: GIRIS_GORSEL, alt: "" }),
@@ -4637,12 +4652,7 @@ html,body,#kok{height:100%;height:100dvh;max-height:100%;max-height:100dvh;overf
                     })))),
             sekme === "magaza" && magazaGorunumu(),
             
-            sekme === "ayakta" && kuponSonrasiRulet && aktif && React.createElement("div", { className: "kp-akis-uyari", role: "status" },
-                React.createElement("div", { className: "kp-akis-baslik" }, "⚽ Kupon tamam · 🃏 Olay Kartı tamam · 🎯 RULET sırası"),
-                React.createElement("p", null, "Kuponun kaydedildi. Şimdi RULET'e katılıp haftanın takımını seç ve kilitle. RULET girişinde oyun içi kasa bedeli alınabilir."),
-                (!ayaktaGirisAcik() && !((ayakta.girenler || []).includes(ben.slug))) && React.createElement("p", null, "Bu tur şu anda katılıma kapalı; sonraki turu bekleyebilirsin."),
-                React.createElement("button", { className: "kp-dg2", onClick: () => setKuponSonrasiRulet(false) }, "Bilgiyi kapat")),
-                        sekme === "ayakta" && ayaktaGorunumu(),
+
             sekme === "portfoy" && (React.createElement(React.Fragment, null,
                 transferGorunumu(),
                 !portfoyAcik && (React.createElement("div", { className: "kp-kat", style: { borderColor: "var(--banko)", background: "rgba(245,165,36,.07)" } },
@@ -4769,9 +4779,9 @@ html,body,#kok{height:100%;height:100dvh;max-height:100%;max-height:100dvh;overf
                 React.createElement("button", { className: "kp-dg2", style: { width: "100%", marginTop: 20 }, onClick: () => { setEkran("giris"); setBen(null); setKurulum(null); setAktif(null); setTablo(null); setResmi(null); setMagaza(MAGAZA_BOS); setSatinOnay(null); setZekatMiktar(""); setZekatOnay(false); setErzakOnay(false); setAnket({}); setMansetKapali(false); setTransfer(null); setTrSat(null); setTrAl(null); setTrOnay(false); setAyakta(AYAKTA_BOS); setAySec(null); setAyGirisOnay(false); setAySecOnay(false); } }, "Ba\u015Fka gruba ge\u00E7")))),
         React.createElement("div", { className: "kp-surum", style: { textAlign: "center", padding: "8px 0 6px", fontSize: 10.5, color: "var(--sol)", fontFamily: "'JetBrains Mono',monospace", flexShrink: 0 } }, "sürüm " + SURUM)),
         React.createElement("nav", { className: "kp-alt", "aria-label": "Bölümler" },
-          React.createElement("div", { className: "kp-nav-desktop" }, [["merkez", "Çatışma"], ["kupon", "Kupon"], ["ayakta", "RULET"], ["klasman", "Klasman"], ["magaza", "Mağaza"], ["portfoy", "Portföy"], ["lig", "Lig"]].map(([k, l]) => React.createElement("button", { key: k, className: sekme === k ? "on" : "", "aria-current": sekme === k ? "page" : undefined, onClick: () => setSekme(k) }, l))),
+          React.createElement("div", { className: "kp-nav-desktop" }, [["merkez", "Çatışma"], ["kupon", "Kupon + RULET"], ["klasman", "Klasman"], ["magaza", "Mağaza"], ["portfoy", "Portföy"], ["lig", "Lig"]].map(([k, l]) => React.createElement("button", { key: k, className: sekme === k ? "on" : "", "aria-current": sekme === k ? "page" : undefined, onClick: () => setSekme(k) }, l))),
           React.createElement("div", { className: "kp-nav-mobile" },
-            [["merkez", "Çatışma"], ["kupon", "Kupon"], ["ayakta", "RULET"], ["klasman", "Klasman"]].map(([k, l]) => React.createElement("button", { key: k, className: sekme === k ? "on" : "", "aria-current": sekme === k ? "page" : undefined, onClick: () => { setDigerAcik(false); setSekme(k); } }, l)),
+            [["merkez", "Çatışma"], ["kupon", "Kupon"], ["klasman", "Klasman"]].map(([k, l]) => React.createElement("button", { key: k, className: sekme === k ? "on" : "", "aria-current": sekme === k ? "page" : undefined, onClick: () => { setDigerAcik(false); setSekme(k); } }, l)),
             React.createElement("button", { type: "button", className: digerAcik || ["magaza", "portfoy", "lig"].includes(sekme) ? "on" : "", "aria-expanded": digerAcik, "aria-controls": "kp-diger-panel", onClick: () => setDigerAcik(!digerAcik) }, "Diğer", digerAcik ? " −" : " +")),
           digerAcik && React.createElement("div", { className: "kp-diger-panel", id: "kp-diger-panel", "aria-label": "Diğer bölümler" },
             [["magaza", "Mağaza"], ["portfoy", "Portföy"], ["lig", "Lig"]].map(([k, l]) => React.createElement("button", { key: k, className: sekme === k ? "on" : "", "aria-current": sekme === k ? "page" : undefined, onClick: () => { setSekme(k); setDigerAcik(false); } }, l))))));
@@ -4879,6 +4889,33 @@ html,body,#kok,.kp,.kp *{cursor:url("data:image/png;base64,iVBORw0KGgoAAAANSUhEU
 .kp-akis-baslik{font:700 13px/1.5 Figtree,sans-serif;color:#8BE0FF}
 .kp-akis-uyari p{font:400 13px/1.6 Figtree,sans-serif;color:#C6D8E4;margin:9px 0}
 .kp-akis-uyari button{width:100%;margin-top:8px}
+</style>
+<style>
+/* UX: RULET belongs to coupon, with improved large-screen editorial layout */
+.kp-rulet-gomulu{margin:22px 0 16px;scroll-margin-top:22px;padding:18px;border:1px solid rgba(62,198,255,.25);border-radius:18px;background:linear-gradient(160deg,#101d29,#10141c 55%);box-shadow:0 18px 42px rgba(0,0,0,.18)}
+.kp-rulet-gomulu-bas{padding:6px 4px 17px;border-bottom:1px solid rgba(255,255,255,.11);margin-bottom:17px}
+.kp-rulet-gomulu-bas h2{font:italic 700 clamp(26px,5vw,38px) Fraunces,Georgia,serif;margin:7px 0;color:#F4F0E6}
+.kp-rulet-gomulu-bas p{font:400 14px/1.6 Figtree,sans-serif;color:#BECDDD;margin:0;max-width:64ch}
+.kp-rulet-gomulu>.kp-kat{background:rgba(255,255,255,.025)}
+@media(max-width:899px){
+ .kp-nav-mobile{grid-template-columns:repeat(4,minmax(0,1fr))!important}
+ .kp-rulet-gomulu{padding:12px;margin-top:18px}
+}
+@media(min-width:1100px){
+ .kp-alt{width:236px!important;flex-basis:236px!important;background:linear-gradient(180deg,#111d29,#0b1018)!important;border-right:1px solid rgba(62,198,255,.15)!important;padding:30px 14px!important}
+ .kp-alt:before{font-size:38px!important;color:#F4F0E6!important;padding:3px 13px 28px!important}
+ .kp-nav-desktop>button{font-size:13px!important;letter-spacing:.035em!important;padding:15px 16px!important;border-radius:11px!important;min-height:48px}
+ .kp-nav-desktop>button.on{background:rgba(62,198,255,.12)!important;color:#EAF8FF!important}
+ .kp-ust{padding:21px clamp(28px,5vw,72px)!important;background:#0d141e!important}
+ .kp-ic{width:100%;max-width:1320px!important;margin:0 auto!important;padding:35px clamp(28px,5vw,72px) 85px!important}
+ .kp-masa{display:flex!important;flex-direction:column!important;gap:0!important}
+ .kp-oyuncu-karsilama{padding:25px 29px!important;margin-bottom:20px!important}
+ .kp-kat{padding:22px!important;border-color:rgba(255,255,255,.10)!important;box-shadow:0 12px 32px rgba(0,0,0,.13)}
+ .kp-rulet-gomulu{padding:25px 30px;margin-top:30px}
+ .kp-kupon-masa{gap:24px!important}
+ .kp-h{letter-spacing:-.02em}
+}
+@media(min-width:1450px){.kp-ic{max-width:1380px!important}.kp-rulet-gomulu{padding:32px 42px}}
 </style>
 </body>
 </html>
