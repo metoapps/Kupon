@@ -1129,6 +1129,12 @@ function Kupon() {
     }
     /* Pro screens and read-only automatic result checking. */
     const [merkezSekme,setMerkezSekme]=useState('ozet');
+    const [detayAcik,setDetayAcik]=useState(false);
+    useEffect(() => {
+        if (!detayAcik || merkezSekme !== 'ozet' || sekme !== 'merkez') return;
+        const el=document.getElementById('kp-haftalik-ayrinti');
+        if (el) el.scrollIntoView({behavior:window.matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth',block:'start'});
+    },[detayAcik,merkezSekme,sekme]);
     const [ozetHafta,setOzetHafta]=useState('');
     const [rakip,setRakip]=useState('');
     const [istatistikKisi,setIstatistikKisi]=useState('');
@@ -1243,29 +1249,36 @@ function Kupon() {
         const du=other?KAnaliz.duel(weeks,ben.slug,other):null;
         const match=(h,i)=>T(h.maclar[i].e).ad+' '+h.sonuclar[i].join('–')+' '+T(h.maclar[i].d).ad;
         const latest=KAnaliz.summary(weeks,weeks.length-1);
+        const genelSirali=klasman || [];
         const siralama=latest && Array.isArray(latest.hareket) ? latest.hareket.slice().sort((a,b)=>a.sira-b.sira).slice(0,5) : [];
         const arena=H('section',{className:'kp-arena', 'aria-label':'Sezon rekabet panosu'},
             H('div',{className:'kp-arena-bas'},
                 H('div',null,H('span',{className:'kp-arena-etiket'},'ARKADAŞ LİGİ / CANLI REKABET'),
                     H('h2',null,'Sahada kim önde?'),
-                    H('p',null,weeks.length ? weeks.length+' tamamlanmış hafta · Tahmin puanları üzerinden' : 'İlk hafta sonuçları bekleniyor')),
+                    H('p',null,weeks.length ? weeks.length+' tamamlanmış hafta · Genel toplam: kupon + portföy' : 'Genel puan durumu ve haftalık sonuçlar')),
                 H('button',{type:'button',className:'kp-arena-link',onClick:()=>setMerkezSekme('rekabet')},'Rakibimle karşılaştır →')),
-            !latest ? H('div',{className:'kp-arena-bos'},'İlk hafta kapanınca liderlik tablosu burada oluşacak.') :
+            
             H('div',{className:'kp-arena-grid'},
                 H('div',{className:'kp-arena-lider'},
-                    H('span',{className:'kp-arena-etiket'},latest.lider.length>1?'HAFTANIN ORTAK LİDERLERİ':'HAFTANIN LİDERİ'),
-                    H('div',{className:'kp-arena-kupa','aria-hidden':'true'},'🏆'),
-                    H('strong',null,latest.lider.length?latest.lider.map(x=>name(x.slug)).join(' & '):'Henüz lider yok'),
-                    H('span',{className:'kp-arena-puan'},((latest.lider[0] && latest.lider[0].puan)||0)+' puan'),
-                    H('small',null,latest.h.no+'. haftanın kupon sonucu')),
+                    H('span',{className:'kp-arena-etiket'},latest && latest.lider.length>1?'HAFTANIN ORTAK LİDERLERİ':'HAFTANIN LİDERİ'),
+                    H('div',{className:'kp-arena-kupa','aria-label':'Haftanın kupası'},
+                        latest && latest.lider.some(x=>x.slug==='buzlulatte')
+                            ? H('div',{className:'kp-latte-kupa'},
+                                H('img',{src:'https://raw.githubusercontent.com/metoapps/DuranTop/main/assets/sprites/latte_sevinc.webp',alt:'Duran Top oyunundaki LATTE karakterinin sevinç figürü, haftanın kupası',loading:'lazy'}),
+                                H('span',{'aria-hidden':'true'},'🏆'))
+                            : '🏆'),
+                    H('strong',null,latest && latest.lider.length?latest.lider.map(x=>name(x.slug)).join(' & '):'İlk hafta bekleniyor'),
+                    H('span',{className:'kp-arena-puan'},((latest && latest.lider[0] && latest.lider[0].puan)||0)+' puan'),
+                    H('small',null,latest ? latest.h.no+'. haftanın kupon sonucu' : 'Henüz tamamlanan hafta yok')),
                 H('div',{className:'kp-arena-sira'},
-                    H('div',{className:'kp-arena-etiket'},'GENEL TAHMİN KLASMANI'),
-                    siralama.length ? siralama.map((x,i)=>H('div',{className:'kp-arena-satir',key:x.slug},
-                        H('span',{className:'kp-arena-rank'},x.sira),
-                        H(Yuz,{isim:name(x.slug),boy:34,vurgu:x.slug===ben.slug}),
-                        H('span',{className:'kp-arena-ad'},name(x.slug),x.slug===ben.slug?' · Sen':''),
-                        H('span',{className:'kp-arena-degisim'},x.fark===null?'Yeni':x.fark>0?'↑ '+x.fark:x.fark<0?'↓ '+Math.abs(x.fark):'—'))) : H('p',null,'Henüz sıralama yok.'),
-                    H('button',{type:'button',className:'kp-arena-link',onClick:()=>setMerkezSekme('ozet')},'Haftalık ayrıntıları gör →'))));
+                    H('div',{className:'kp-arena-etiket'},'GENEL KLASMAN · KUPON + PORTFÖY'),
+                    genelSirali.length ? genelSirali.map((x,i)=>H('div',{className:'kp-arena-satir',key:x.slug},
+                        H('span',{className:'kp-arena-rank'},i+1),
+                        H(Yuz,{isim:x.isim,boy:34,vurgu:x.slug===ben.slug}),
+                        H('span',{className:'kp-arena-ad'},x.isim,x.slug===ben.slug?' · Sen':''),
+                        H('span',{className:'kp-arena-degisim'},String(x.genel)+' puan'),
+                        H('span',{className:'kp-arena-bilesen'},'K '+x.kupon+' / P '+x.portfoy))) : H('p',null,'Henüz oyuncu bulunmuyor.'),
+                    H('button',{type:'button',className:'kp-arena-link',onClick:()=>{setMerkezSekme('ozet');setDetayAcik(true);}},'Haftalık ayrıntıları gör →'))));
         return H('section',{className:'pr-root'},
             arena,
             H('div',{className:'pr-hero'},
@@ -1279,10 +1292,11 @@ function Kupon() {
                     H('div',{className:'pr-winner'},H('div',{className:'kp-et'},sum.lider.length>1?'HAFTANIN ORTAK LİDERLERİ':'HAFTANIN LİDERİ'),H('h2',null,sum.lider.length?sum.lider.map(x=>name(x.slug)).join(' & '):'Kupon verilmedi'),H('strong',{className:'pr-big'},((sum.lider[0] && sum.lider[0].puan)||0)+' puan'),prText(sum.h.no+'. hafta • Yalnızca haftalık tahmin puanı')),
                     sum.surpriz&&H('div',{className:'kp-kat'},H('div',{className:'kp-et'},'EN AZ BİLİNEN SONUÇ'),H('h3',null,match(sum.h,sum.surpriz.i)),prText(sum.surpriz.toplam+' kişiden '+sum.surpriz.dogru+' kişi sonucu bildi. Bu değerlendirme grubun tahminlerine dayanır.')),
                     sum.tekler.length>0&&H('div',{className:'kp-kat'},H('div',{className:'kp-et'},'TEK BİLENLER'),sum.tekler.map(x=>H('div',{className:'pr-row',key:x.i},H('strong',null,name(x.slug)),H('span',null,match(sum.h,x.i))))),
-                    H('div',{className:'kp-kat'},H('div',{className:'kp-et'},'KUPON KLASMANINDA HAREKET'),prText('Bu haftaya kadar biriken tahmin puanları; portföy hariç.'),sum.hareket.map(x=>H('div',{className:'pr-row',key:x.slug},H('span',null,x.sira+'. '+name(x.slug)),H('strong',{className:x.fark>0?'pr-green':''},x.fark===null?'Yeni':x.fark>0?'↑ '+x.fark:x.fark<0?'↓ '+Math.abs(x.fark):'—')))),
-                    sum.h.kartlar&&Object.keys(sum.h.kartlar).length?H('div',{className:'kp-kat'},H('div',{className:'kp-et'},'OLAY KARTLARI'),Object.keys(sum.h.kartlar).map(sl=>{const k=sum.h.kartlar[sl],kp=(sum.h.kartPuan&&sum.h.kartPuan[sl])||0,m=sum.h.maclar[k.mac];return H('div',{className:'pr-row',key:sl},H('span',null,name(sl)+' · '+kartEtiket(k.tur)+(m?' · '+T(m.e).kod+'–'+T(m.d).kod:'')),H('strong',{className:kp>0?'pr-green':''},kp>0?'+'+kp:'0'));})):null,
-                    H('button',{className:'kp-dg',disabled:mesgul,onClick:()=>guvenliIslem(()=>kartHazirla(sum.h))},'Haftalık paylaşım kartı hazırla'),
-                    paylasim&&paylasim.hafta===sum.h.no&&H('div',{className:'kp-kat',style:{marginTop:12}},kartUrl&&H('img',{className:'pr-card-preview',src:kartUrl,alt:sum.h.no+'. haftanın sonuç kartı'}),H('div',{className:'pr-actions'},H('button',{className:'kp-dg2',onClick:()=>dosyaIndir(paylasim.blob,paylasim.name)},'PNG indir'),H('button',{className:'kp-dg2',onClick:kartPaylas},'Paylaş'))))),
+                    detayAcik&&H('div',{className:'kp-kat',id:'kp-haftalik-ayrinti'},H('div',{className:'kp-et'},'KUPON KLASMANINDA HAREKET'),prText('Bu haftaya kadar biriken tahmin puanları; portföy hariç.'),sum.hareket.map(x=>H('div',{className:'pr-row',key:x.slug},H('span',null,x.sira+'. '+name(x.slug)),H('strong',null,x.puan+' puan'),H('strong',{className:x.fark>0?'pr-green':''},x.fark===null?'Yeni':x.fark>0?'↑ '+x.fark:x.fark<0?'↓ '+Math.abs(x.fark):'—')))),
+                    detayAcik&&sum.h.kartlar&&Object.keys(sum.h.kartlar).length?H('div',{className:'kp-kat'},H('div',{className:'kp-et'},'OLAY KARTLARI'),Object.keys(sum.h.kartlar).map(sl=>{const k=sum.h.kartlar[sl],kp=(sum.h.kartPuan&&sum.h.kartPuan[sl])||0,m=sum.h.maclar[k.mac];return H('div',{className:'pr-row',key:sl},H('span',null,name(sl)+' · '+kartEtiket(k.tur)+(m?' · '+T(m.e).kod+'–'+T(m.d).kod:'')),H('strong',{className:kp>0?'pr-green':''},kp>0?'+'+kp:'0'));})):null,
+                    H('button',{className:'kp-dg2',onClick:()=>setDetayAcik(!detayAcik)},detayAcik?'Ayrıntıları gizle':'Klasman hareketi, Olay Kartları ve paylaşımları göster'),
+                    detayAcik&&H('button',{className:'kp-dg',disabled:mesgul,onClick:()=>guvenliIslem(()=>kartHazirla(sum.h))},'Haftalık paylaşım kartı hazırla'),
+                    detayAcik&&paylasim&&paylasim.hafta===sum.h.no&&H('div',{className:'kp-kat',style:{marginTop:12}},kartUrl&&H('img',{className:'pr-card-preview',src:kartUrl,alt:sum.h.no+'. haftanın sonuç kartı'}),H('div',{className:'pr-actions'},H('button',{className:'kp-dg2',onClick:()=>dosyaIndir(paylasim.blob,paylasim.name)},'PNG indir'),H('button',{className:'kp-dg2',onClick:kartPaylas},'Paylaş'))))),
             merkezSekme==='rekabet'&&H(React.Fragment,null,
                 !du?H('div',{className:'kp-kat'},prText('Karşılaştırma için gruba bir oyuncu daha katılmalı.')):H(React.Fragment,null,
                     H('label',{className:'pr-label'},'Rakibin',H('select',{className:'kp-gir',value:other,onChange:e=>setRakip(e.target.value)},opponents.map(o=>H('option',{key:o.slug,value:o.slug},o.isim)))),
@@ -4806,7 +4820,8 @@ html,body,#kok{height:100%;height:100dvh;max-height:100%;max-height:100dvh;overf
                 React.createElement("button", { className: "kp-dg2", style: { width: "100%", marginTop: 20 }, onClick: () => { setEkran("giris"); setBen(null); setKurulum(null); setAktif(null); setTablo(null); setResmi(null); setMagaza(MAGAZA_BOS); setSatinOnay(null); setZekatMiktar(""); setZekatOnay(false); setErzakOnay(false); setAnket({}); setMansetKapali(false); setTransfer(null); setTrSat(null); setTrAl(null); setTrOnay(false); setAyakta(AYAKTA_BOS); setAySec(null); setAyGirisOnay(false); setAySecOnay(false); } }, "Ba\u015Fka gruba ge\u00E7")))),
         React.createElement("div", { className: "kp-surum", style: { textAlign: "center", padding: "8px 0 6px", fontSize: 10.5, color: "var(--sol)", fontFamily: "'JetBrains Mono',monospace", flexShrink: 0 } }, "sürüm " + SURUM)),
         React.createElement("nav", { className: "kp-alt", "aria-label": "Bölümler" },
-          React.createElement("div", { className: "kp-nav-desktop" }, [["merkez", "Çatışma"], ["kupon", "Kupon + RULET"], ["klasman", "Klasman"], ["magaza", "Mağaza"], ["portfoy", "Portföy"], ["lig", "Lig"]].map(([k, l]) => React.createElement("button", { key: k, className: sekme === k ? "on" : "", "aria-current": sekme === k ? "page" : undefined, onClick: () => setSekme(k) }, l))),
+          React.createElement("div", { className: "kp-nav-desktop" }, [["merkez", "Çatışma"], ["kupon", "Kupon + RULET"], ["klasman", "Genel Klasman"], ["magaza", "Mağaza"], ["lig", "Lig"]].map(([k, l]) => React.createElement("button", { key: k, className: sekme === k ? "on" : "", "aria-current": sekme === k ? "page" : undefined, onClick: () => setSekme(k) }, l))),
+          React.createElement("button", { type: "button", className: "kp-portfoy-kose", onClick: () => setSekme("portfoy") }, "Portföy ↗"),
           React.createElement("div", { className: "kp-nav-mobile" },
             [["merkez", "Çatışma"], ["kupon", "Kupon"], ["klasman", "Klasman"]].map(([k, l]) => React.createElement("button", { key: k, className: sekme === k ? "on" : "", "aria-current": sekme === k ? "page" : undefined, onClick: () => { setDigerAcik(false); setSekme(k); } }, l)),
             React.createElement("button", { type: "button", className: digerAcik || ["magaza", "portfoy", "lig"].includes(sekme) ? "on" : "", "aria-expanded": digerAcik, "aria-controls": "kp-diger-panel", onClick: () => setDigerAcik(!digerAcik) }, "Diğer", digerAcik ? " −" : " +")),
@@ -4972,5 +4987,22 @@ html,body,#kok,.kp,.kp *{cursor:url("data:image/png;base64,iVBORw0KGgoAAAANSUhEU
 @media(max-width:740px){.kp-arena-bas{padding:17px;align-items:flex-start;flex-direction:column}.kp-arena-grid{grid-template-columns:1fr}.kp-arena-lider{border-right:0;border-bottom:1px solid rgba(255,255,255,.09);padding:17px}.kp-arena-sira{padding:17px}}
 @media(min-width:1100px){.kp-arena{box-shadow:0 18px 48px rgba(0,0,0,.2);margin-bottom:25px}.kp-arena-bas{padding:27px 31px}.kp-arena-lider{padding:32px}.kp-arena-sira{padding:28px 32px}}
 </style>
-</body>
+<style>
+.kp-arena-bilesen{font:500 10px 'IBM Plex Mono',monospace;color:#90ADBF;white-space:nowrap}
+.kp-portfoy-kose{width:100%;background:transparent!important;color:#8DA9B9!important;text-align:left!important;margin-top:15px;border-top:1px solid rgba(255,255,255,.10)!important;font-size:11px!important;opacity:.8}
+.kp-arena-satir{flex-wrap:wrap}.kp-arena-satir .kp-arena-ad{min-width:75px}
+@media(max-width:480px){.kp-arena-bilesen{width:100%;padding-left:37px}.kp-arena-degisim{font-size:11px}}
+</style><style>
+.kp-latte-kupa{position:relative;display:flex;align-items:flex-end;min-height:145px;width:100%;max-width:240px;overflow:hidden}
+.kp-latte-kupa img{display:block;width:185px;height:155px;object-fit:contain;object-position:center bottom;filter:drop-shadow(0 9px 12px rgba(0,0,0,.4));animation:kpLatteGiris .8s cubic-bezier(.2,.85,.2,1) both}
+.kp-latte-kupa span{font-size:56px;position:absolute;bottom:6px;right:1px;filter:drop-shadow(0 4px 8px rgba(0,0,0,.35));animation:kpKupaParla 1s ease-out .3s both}
+@keyframes kpLatteGiris{from{transform:translateY(17px) scale(.94);opacity:0}to{transform:none;opacity:1}}
+@keyframes kpKupaParla{from{transform:scale(.6) rotate(-12deg);opacity:0}to{transform:scale(1) rotate(0);opacity:1}}
+@media(prefers-reduced-motion:reduce){.kp-latte-kupa img,.kp-latte-kupa span{animation:none}}
+</style>
+<style>
+@media(max-width:1099px){.kp-portfoy-kose{display:none!important}}
+@media(min-width:1100px){.kp-portfoy-kose{display:block!important;width:100%;padding:12px 14px!important}}
+#kp-haftalik-ayrinti{scroll-margin-top:20px}
+</style></body>
 </html>
