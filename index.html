@@ -1256,7 +1256,12 @@ function Kupon() {
             H('div',{className:'kp-arena-grid'},
                 H('div',{className:'kp-arena-lider'},
                     H('span',{className:'kp-arena-etiket'},latest && latest.lider.length>1?'HAFTANIN ORTAK LİDERLERİ':'HAFTANIN LİDERİ'),
-                    H('div',{className:'kp-arena-kupa','aria-hidden':'true'},'🏆'),
+                    H('div',{className:'kp-arena-kupa','aria-label':'Haftanın kupası'},
+                        latest && latest.lider.some(x=>x.slug==='buzlulatte')
+                            ? H('div',{className:'kp-latte-kupa'},
+                                H('img',{src:'https://raw.githubusercontent.com/metoapps/DuranTop/main/assets/sprites/latte_sevinc.webp',alt:'Duran Top oyunundaki LATTE karakterinin sevinç figürü, haftanın kupası',loading:'lazy'}),
+                                H('span',{'aria-hidden':'true'},'🏆'))
+                            : '🏆'),
                     H('strong',null,latest && latest.lider.length?latest.lider.map(x=>name(x.slug)).join(' & '):'İlk hafta bekleniyor'),
                     H('span',{className:'kp-arena-puan'},((latest && latest.lider[0] && latest.lider[0].puan)||0)+' puan'),
                     H('small',null,latest ? latest.h.no+'. haftanın kupon sonucu' : 'Henüz tamamlanan hafta yok')),
@@ -4982,5 +4987,13 @@ html,body,#kok,.kp,.kp *{cursor:url("data:image/png;base64,iVBORw0KGgoAAAANSUhEU
 .kp-portfoy-kose{width:100%;background:transparent!important;color:#8DA9B9!important;text-align:left!important;margin-top:15px;border-top:1px solid rgba(255,255,255,.10)!important;font-size:11px!important;opacity:.8}
 .kp-arena-satir{flex-wrap:wrap}.kp-arena-satir .kp-arena-ad{min-width:75px}
 @media(max-width:480px){.kp-arena-bilesen{width:100%;padding-left:37px}.kp-arena-degisim{font-size:11px}}
-</style></body>
+</style><style>
+.kp-latte-kupa{position:relative;display:flex;align-items:flex-end;min-height:145px;width:100%;max-width:240px;overflow:hidden}
+.kp-latte-kupa img{display:block;width:185px;height:155px;object-fit:contain;object-position:center bottom;filter:drop-shadow(0 9px 12px rgba(0,0,0,.4));animation:kpLatteGiris .8s cubic-bezier(.2,.85,.2,1) both}
+.kp-latte-kupa span{font-size:56px;position:absolute;bottom:6px;right:1px;filter:drop-shadow(0 4px 8px rgba(0,0,0,.35));animation:kpKupaParla 1s ease-out .3s both}
+@keyframes kpLatteGiris{from{transform:translateY(17px) scale(.94);opacity:0}to{transform:none;opacity:1}}
+@keyframes kpKupaParla{from{transform:scale(.6) rotate(-12deg);opacity:0}to{transform:scale(1) rotate(0);opacity:1}}
+@media(prefers-reduced-motion:reduce){.kp-latte-kupa img,.kp-latte-kupa span{animation:none}}
+</style>
+</body>
 </html>
