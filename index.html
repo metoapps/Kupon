@@ -1130,6 +1130,11 @@ function Kupon() {
     /* Pro screens and read-only automatic result checking. */
     const [merkezSekme,setMerkezSekme]=useState('ozet');
     const [detayAcik,setDetayAcik]=useState(false);
+    useEffect(() => {
+        if (!detayAcik || merkezSekme !== 'ozet' || sekme !== 'merkez') return;
+        const el=document.getElementById('kp-haftalik-ayrinti');
+        if (el) el.scrollIntoView({behavior:window.matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth',block:'start'});
+    },[detayAcik,merkezSekme,sekme]);
     const [ozetHafta,setOzetHafta]=useState('');
     const [rakip,setRakip]=useState('');
     const [istatistikKisi,setIstatistikKisi]=useState('');
@@ -1287,7 +1292,7 @@ function Kupon() {
                     H('div',{className:'pr-winner'},H('div',{className:'kp-et'},sum.lider.length>1?'HAFTANIN ORTAK LİDERLERİ':'HAFTANIN LİDERİ'),H('h2',null,sum.lider.length?sum.lider.map(x=>name(x.slug)).join(' & '):'Kupon verilmedi'),H('strong',{className:'pr-big'},((sum.lider[0] && sum.lider[0].puan)||0)+' puan'),prText(sum.h.no+'. hafta • Yalnızca haftalık tahmin puanı')),
                     sum.surpriz&&H('div',{className:'kp-kat'},H('div',{className:'kp-et'},'EN AZ BİLİNEN SONUÇ'),H('h3',null,match(sum.h,sum.surpriz.i)),prText(sum.surpriz.toplam+' kişiden '+sum.surpriz.dogru+' kişi sonucu bildi. Bu değerlendirme grubun tahminlerine dayanır.')),
                     sum.tekler.length>0&&H('div',{className:'kp-kat'},H('div',{className:'kp-et'},'TEK BİLENLER'),sum.tekler.map(x=>H('div',{className:'pr-row',key:x.i},H('strong',null,name(x.slug)),H('span',null,match(sum.h,x.i))))),
-                    detayAcik&&H('div',{className:'kp-kat'},H('div',{className:'kp-et'},'KUPON KLASMANINDA HAREKET'),prText('Bu haftaya kadar biriken tahmin puanları; portföy hariç.'),sum.hareket.map(x=>H('div',{className:'pr-row',key:x.slug},H('span',null,x.sira+'. '+name(x.slug)),H('strong',null,x.puan+' puan'),H('strong',{className:x.fark>0?'pr-green':''},x.fark===null?'Yeni':x.fark>0?'↑ '+x.fark:x.fark<0?'↓ '+Math.abs(x.fark):'—')))),
+                    detayAcik&&H('div',{className:'kp-kat',id:'kp-haftalik-ayrinti'},H('div',{className:'kp-et'},'KUPON KLASMANINDA HAREKET'),prText('Bu haftaya kadar biriken tahmin puanları; portföy hariç.'),sum.hareket.map(x=>H('div',{className:'pr-row',key:x.slug},H('span',null,x.sira+'. '+name(x.slug)),H('strong',null,x.puan+' puan'),H('strong',{className:x.fark>0?'pr-green':''},x.fark===null?'Yeni':x.fark>0?'↑ '+x.fark:x.fark<0?'↓ '+Math.abs(x.fark):'—')))),
                     detayAcik&&sum.h.kartlar&&Object.keys(sum.h.kartlar).length?H('div',{className:'kp-kat'},H('div',{className:'kp-et'},'OLAY KARTLARI'),Object.keys(sum.h.kartlar).map(sl=>{const k=sum.h.kartlar[sl],kp=(sum.h.kartPuan&&sum.h.kartPuan[sl])||0,m=sum.h.maclar[k.mac];return H('div',{className:'pr-row',key:sl},H('span',null,name(sl)+' · '+kartEtiket(k.tur)+(m?' · '+T(m.e).kod+'–'+T(m.d).kod:'')),H('strong',{className:kp>0?'pr-green':''},kp>0?'+'+kp:'0'));})):null,
                     H('button',{className:'kp-dg2',onClick:()=>setDetayAcik(!detayAcik)},detayAcik?'Ayrıntıları gizle':'Klasman hareketi, Olay Kartları ve paylaşımları göster'),
                     detayAcik&&H('button',{className:'kp-dg',disabled:mesgul,onClick:()=>guvenliIslem(()=>kartHazirla(sum.h))},'Haftalık paylaşım kartı hazırla'),
@@ -4995,5 +5000,9 @@ html,body,#kok,.kp,.kp *{cursor:url("data:image/png;base64,iVBORw0KGgoAAAANSUhEU
 @keyframes kpKupaParla{from{transform:scale(.6) rotate(-12deg);opacity:0}to{transform:scale(1) rotate(0);opacity:1}}
 @media(prefers-reduced-motion:reduce){.kp-latte-kupa img,.kp-latte-kupa span{animation:none}}
 </style>
-</body>
+<style>
+@media(max-width:1099px){.kp-portfoy-kose{display:none!important}}
+@media(min-width:1100px){.kp-portfoy-kose{display:block!important;width:100%;padding:12px 14px!important}}
+#kp-haftalik-ayrinti{scroll-margin-top:20px}
+</style></body>
 </html>
