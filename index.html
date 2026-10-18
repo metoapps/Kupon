@@ -4809,10 +4809,10 @@ html,body,#kok{height:100%;height:100dvh;max-height:100%;max-height:100dvh;overf
                 React.createElement("button", { className: "kp-dg2", style: { width: "100%", marginTop: 20 }, onClick: () => { setEkran("giris"); setBen(null); setKurulum(null); setAktif(null); setTablo(null); setResmi(null); setMagaza(MAGAZA_BOS); setSatinOnay(null); setZekatMiktar(""); setZekatOnay(false); setErzakOnay(false); setAnket({}); setMansetKapali(false); setTransfer(null); setTrSat(null); setTrAl(null); setTrOnay(false); setAyakta(AYAKTA_BOS); setAySec(null); setAyGirisOnay(false); setAySecOnay(false); } }, "Ba\u015Fka gruba ge\u00E7")))),
         React.createElement("div", { className: "kp-surum", style: { textAlign: "center", padding: "8px 0 6px", fontSize: 10.5, color: "var(--sol)", fontFamily: "'JetBrains Mono',monospace", flexShrink: 0 } }, "sürüm " + SURUM)),
         React.createElement("nav", { className: "kp-alt", "aria-label": "Bölümler" },
-          React.createElement("div", { className: "kp-nav-desktop" }, [["merkez", "Çatışma"], ["kupon", "Kupon"], ["klasman", "Genel Klasman"], ["magaza", "Mağaza"], ["lig", "Lig"]].map(([k, l]) => React.createElement("button", { key: k, className: sekme === k ? "on" : "", "aria-current": sekme === k ? "page" : undefined, onClick: () => setSekme(k) }, l))),
+          React.createElement("div", { className: "kp-nav-desktop" }, [["merkez", "Çatışma"], ["kupon", "Kupon"], ["klasman", "Genel Klasman"], ["magaza", "Mağaza"], ["lig", "Lig"]].map(([k, l]) => React.createElement("button", { key: k, className: sekme === k ? "on" : "", "aria-current": sekme === k ? "page" : undefined, onClick: () => setSekme(k) }, k === "klasman" ? React.createElement("img", { src: "https://cdn.jsdelivr.net/npm/lucide-static@0.542.0/icons/trophy.svg", width: 17, height: 17, alt: "", "aria-hidden": "true", className: "kp-lucide-trophy", loading: "lazy" }) : null, l))),
           React.createElement("button", { type: "button", className: "kp-portfoy-kose", onClick: () => setSekme("portfoy") }, "Portföy ↗"),
           React.createElement("div", { className: "kp-nav-mobile" },
-            [["merkez", "Çatışma"], ["kupon", "Kupon"], ["klasman", "Klasman"]].map(([k, l]) => React.createElement("button", { key: k, className: sekme === k ? "on" : "", "aria-current": sekme === k ? "page" : undefined, onClick: () => { setDigerAcik(false); setSekme(k); } }, l)),
+            [["merkez", "Çatışma"], ["kupon", "Kupon"], ["klasman", "Klasman"]].map(([k, l]) => React.createElement("button", { key: k, className: sekme === k ? "on" : "", "aria-current": sekme === k ? "page" : undefined, onClick: () => { setDigerAcik(false); setSekme(k); } }, k === "klasman" ? React.createElement("img", { src: "https://cdn.jsdelivr.net/npm/lucide-static@0.542.0/icons/trophy.svg", width: 17, height: 17, alt: "", "aria-hidden": "true", className: "kp-lucide-trophy", loading: "lazy" }) : null, l)),
             React.createElement("button", { type: "button", className: digerAcik || ["magaza", "portfoy", "lig"].includes(sekme) ? "on" : "", "aria-expanded": digerAcik, "aria-controls": "kp-diger-panel", onClick: () => setDigerAcik(!digerAcik) }, "Diğer", digerAcik ? " −" : " +")),
           digerAcik && React.createElement("div", { className: "kp-diger-panel", id: "kp-diger-panel", "aria-label": "Diğer bölümler" },
             [["magaza", "Mağaza"], ["portfoy", "Portföy"], ["lig", "Lig"]].map(([k, l]) => React.createElement("button", { key: k, className: sekme === k ? "on" : "", "aria-current": sekme === k ? "page" : undefined, onClick: () => { setSekme(k); setDigerAcik(false); } }, l))))));
@@ -5016,6 +5016,13 @@ html,body,#kok,.kp,.kp *{cursor:url("data:image/png;base64,iVBORw0KGgoAAAANSUhEU
 @keyframes kpOdulUc{0%{transform:scale(.83);opacity:0}40%{transform:scale(1.1) rotate(3deg)}75%{transform:rotate(-2deg)}100%{transform:none;opacity:1}}
 @media(max-width:650px){.kp-haftalik-oduller{grid-template-columns:1fr}.kp-odul-sahne{height:150px}.kp-odul-sahne img{max-height:146px}}
 @media(prefers-reduced-motion:reduce){.kp-odul-sahne{animation:none!important}}
+</style>
+
+<style id="kp-lucide-icon-trial">
+/* Lucide denemesi: yalnızca klasman navigasyonu; metinler daima görünür. */
+.kp-nav-desktop button:has(.kp-lucide-trophy),.kp-nav-mobile button:has(.kp-lucide-trophy){display:inline-flex;align-items:center;justify-content:center;gap:6px}
+.kp-lucide-trophy{display:inline-block;flex:0 0 17px;opacity:.9;vertical-align:middle;filter:brightness(0) invert(1)}
+@media(max-width:360px){.kp-lucide-trophy{width:15px;height:15px;flex-basis:15px}}
 </style>
 </body>
 </html>
