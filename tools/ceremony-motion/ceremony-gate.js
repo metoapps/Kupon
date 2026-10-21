@@ -1,24 +1,24 @@
-/* Kupon ceremony eligibility gate. No DOM writes. No auto-play. No changes to scoring.
- * Enables the approved METO-win/LORT-loss clip only when unique and complete.
- * This module intentionally does not select any default video URL.
- */
+/* Kupon ceremony gate: never changes scores; no autoplay. */
 (function(root,factory){
- const fn=factory();
- if(typeof module==='object'&&module.exports)module.exports=fn;
- else root.KuponCeremonyGate=fn;
+ const api=factory();
+ if(typeof module==='object'&&module.exports)module.exports=api;
+ else root.KuponCeremonyGate=api;
 })(typeof window==='undefined'?globalThis:window,function(){
  'use strict';
- function choose(award,assetUrl,finalized){
-  if(finalized!==true)return null;
-  if(!award||!award.h||!Array.isArray(award.champ)||!Array.isArray(award.last))return null;
-  // Never reveal during unfinished scoring, ties, or incomplete participation.
+ const PLAYERS=Object.freeze(['meto','lort','fero','latte','josh']);
+ const BASE='assets/ceremony/videos/';
+ const normalize=x=>String(x||'').toLocaleLowerCase('tr-TR').trim();
+ function choose(award,finalized){
+  if(finalized!==true||!award||!award.h||!Array.isArray(award.champ)||!Array.isArray(award.last))return null;
   if(award.champ.length!==1||award.last.length!==1)return null;
-  const winner=String(award.champ[0][0]||'').toLocaleLowerCase('tr-TR');
-  const loser=String(award.last[0][0]||'').toLocaleLowerCase('tr-TR');
-  if(winner!=='meto'||loser!=='lort'||winner===loser)return null;
-  if(typeof assetUrl!=='string'||assetUrl!=='/assets/ceremony/meto-lort-v7.mp4')return null;
-  // Keep video voluntary, never autoplay. Marked as a demo/pilot, not a result determination.
-  return {title:'METO–LORT ödül töreni',winner,loser,week:award.h.no,src:assetUrl,autoplay:false};
+  const winner=normalize(award.champ[0][0]);
+  const loser=normalize(award.last[0][0]);
+  if(!PLAYERS.includes(winner)||!PLAYERS.includes(loser)||winner===loser)return null;
+  const week=Number(award.h.no);
+  if(!Number.isInteger(week)||week<0)return null;
+  return Object.freeze({title:'Haftanın ödül töreni',winner,loser,week,
+   src:BASE+winner.toUpperCase()+'-'+loser.toUpperCase()+'.mp4',autoplay:false});
  }
- return Object.freeze({choose});
+ function all(){return PLAYERS.flatMap(winner=>PLAYERS.filter(loser=>loser!==winner).map(loser=>({winner,loser,src:BASE+winner.toUpperCase()+'-'+loser.toUpperCase()+'.mp4'})));}
+ return Object.freeze({choose,all});
 });
