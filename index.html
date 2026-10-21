@@ -22,6 +22,7 @@
 <script src="https://cdn.jsdelivr.net/npm/react@18.3.1/umd/react.production.min.js" crossorigin></script>
 <script src="https://cdn.jsdelivr.net/npm/react-dom@18.3.1/umd/react-dom.production.min.js" crossorigin></script>
 <script src="tools/ceremony-motion/ceremony-gate.js"></script>
+<script src="tools/kupon-sports.js"></script>
 <script id="kp-ses">
 (function () {
   try {
@@ -947,19 +948,12 @@ const KAnaliz = (() => {
     }
         return {rank,stats,duel,summary,percent,stamp,eventTime,trDatetimeLocal,trSaat,finalScore,valid};
 })();
-async function sporVerisi(hafta,signal){
-    const url=`https://www.thesportsdb.com/api/v1/json/${TSDB.anahtar}/eventsround.php?id=${TSDB.lig}&r=${hafta}&s=${TSDB.sezon}`;
-    const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),15000);
-    const cancel=()=>controller.abort();if(signal)signal.addEventListener('abort',cancel,{once:true});
-    try{
-        if(signal && signal.aborted)throw new Error('İstek iptal edildi.');
-        const r=await fetch(url,{signal:controller.signal});
-        if(!r.ok)throw new Error(r.status===429?'Sonuç servisi yoğun. Birkaç dakika sonra tekrar dene.':'Sonuç servisine ulaşılamadı ('+r.status+').');
-        const d=await r.json();
-        const list=d.events;if(!Array.isArray(list)||!list.length)throw new Error('Bu hafta için veri yok. Hazır fikstürü veya elle girişi kullanabilirsin.');
-        const events=list.filter(o=>String(o.idLeague)===TSDB.lig && String(o.strSeason)===TSDB.sezon && Number(o.intRound)===Number(hafta));
-        if(!events.length)throw new Error('Servisten gelen sezon/hafta verisi eşleşmiyor. Elle kontrol et.');return events;
-    }finally{clearTimeout(timer);if(signal)signal.removeEventListener('abort',cancel);}
+async function sporVerisi(hafta,signal,maclar){
+    if(!window.KuponSports)throw new Error('Skor kontrol modülü yüklenemedi. Sayfayı yenile.');
+    return window.KuponSports.load({
+      week:hafta,league:TSDB.lig,season:TSDB.sezon,key:TSDB.anahtar,
+      matches:maclar,resolve:apiEslesme,eventTime:KAnaliz.eventTime,signal
+    });
 }
 function dosyaIndir(blob,name){const u=URL.createObjectURL(blob),a=document.createElement('a');a.href=u;a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(u),60000);}
 async function kuponZipPaylas(){
@@ -1155,7 +1149,7 @@ function Kupon() {
         let intervalId,timeoutId;
         async function run(){
             if(document.hidden||sporRef.current||iptal)return;sporRef.current=true;
-            try{const events=await sporVerisi(aktif.hafta,controller.signal);if(!iptal)setSporDurum({hafta:aktif.hafta,sonuclar:sonucHaritasi(events),zaman:Date.now(),hata:'',mesgul:false});}
+            try{const events=await sporVerisi(aktif.hafta,controller.signal,aktifMacEslesmeleri());if(!iptal)setSporDurum({hafta:aktif.hafta,sonuclar:sonucHaritasi(events),zaman:Date.now(),hata:'',mesgul:false});}
             catch(e){if(!iptal)setSporDurum(v=>({...v,hata:e.message,mesgul:false}));}
             finally{sporRef.current=false;}
         }
@@ -1169,7 +1163,7 @@ function Kupon() {
     }
     async function sporYenile(){
         if(!aktif||sporRef.current)return;sporRef.current=true;setSporDurum(v=>({...v,mesgul:true}));
-        try{const events=await sporVerisi(aktif.hafta);setSporDurum({hafta:aktif.hafta,sonuclar:sonucHaritasi(events),zaman:Date.now(),hata:'',mesgul:false});}
+        try{const events=await sporVerisi(aktif.hafta,undefined,aktifMacEslesmeleri());setSporDurum({hafta:aktif.hafta,sonuclar:sonucHaritasi(events),zaman:Date.now(),hata:'',mesgul:false});}
         catch(e){setSporDurum(v=>({...v,hata:e.message,mesgul:false}));}finally{sporRef.current=false;}
     }
     async function fiksturCek(){
@@ -1841,10 +1835,16 @@ function Kupon() {
         const sade = (kod || "").replace(/Ö/g, "O").replace(/Ç/g, "C").replace(/İ/g, "I").replace(/Ğ/g, "G").replace(/Ü/g, "U").replace(/Ş/g, "S");
         return sade;
     };
+    function aktifMacEslesmeleri(){
+        return (aktif&&aktif.maclar||[]).map(m=>({
+          home:kodEslesmesi(T(m.e).kod),away:kodEslesmesi(T(m.d).kod),
+          id:m.olay||null,start:Number.isFinite(m.baslangic)?m.baslangic:null
+        }));
+    }
     async function sonucCek() {
         setCekiyor(true);setBilgi('');
         try {
-            const events=await sporVerisi(aktif.hafta),harita=sonucHaritasi(events);
+            const events=await sporVerisi(aktif.hafta,undefined,aktifMacEslesmeleri()),harita=sonucHaritasi(events);
             const y=(sonucGiris||aktif.maclar.map(()=>[null,null])).map(x=>[...x]);let bulunan=0;
             aktif.maclar.forEach((m,i)=>{const key=kodEslesmesi(T(m.e).kod)+'>'+kodEslesmesi(T(m.d).kod);if(harita[key]){y[i]=harita[key];bulunan++;}});
             setSonucGiris(y);setSporDurum({hafta:aktif.hafta,sonuclar:harita,zaman:Date.now(),hata:'',mesgul:false});
