@@ -7,7 +7,7 @@
  'use strict';
  const PLAYERS=Object.freeze(['meto','lort','fero','latte','josh']);
  const BASE='assets/ceremony/videos/';
- const normalize=x=>String(x||'').toLocaleLowerCase('tr-TR').trim();
+ const normalize=x=>{const s=String(x||'').toLocaleLowerCase('tr-TR').trim();return s==='buzlulatte'?'latte':s;};
  function choose(award,finalized){
   if(finalized!==true||!award||!award.h||!Array.isArray(award.champ)||!Array.isArray(award.last))return null;
   if(award.champ.length!==1||award.last.length!==1)return null;
