@@ -1289,7 +1289,7 @@ function Kupon() {
             H('div',{className:'kp-tore-pencere',role:'dialog','aria-modal':'true','aria-label':'Haftanın ödül töreni',onClick:e=>e.stopPropagation()},
               H('div',{className:'kp-tore-ust'},H('strong',null,'🏆 '+name(kutlama.champ[0][0])+' · '+name(kutlama.last[0][0])),H('button',{type:'button',className:'kp-tore-kapat','aria-label':'Videoyu kapat',onClick:()=>setToreVideo(null)},'✕')),
               H('video',{key:toreVideo.src,src:toreVideo.src,controls:true,playsInline:true,preload:'metadata',autoPlay:false,style:{display:'block',width:'100%',maxHeight:'75dvh',background:'#000'},onError:()=>setToreVideo(null)},'Tarayıcınız video oynatmayı desteklemiyor.'),
-              H('small',null,'Ses için oynat düğmesine dokun. Video otomatik başlamaz.')))));
+              H('small',null,'Ses için oynat düğmesine dokun. Video otomatik başlamaz.'))));
         const genelSirali=klasman || [];
         const siralama=latest && Array.isArray(latest.hareket) ? latest.hareket.slice().sort((a,b)=>a.sira-b.sira).slice(0,5) : [];
         const arena=H('section',{className:'kp-arena', 'aria-label':'Sezon rekabet panosu'},
