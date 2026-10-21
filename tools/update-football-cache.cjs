@@ -14,7 +14,7 @@ async function read(url){
   }finally{clearTimeout(timer)}
 }
 async function readEspn(){
-  const ranges=['20260801-20261130','20261201-20270331','20270401-20270630'];
+  const ranges=['202608','202609','202610','202611','202612','202701','202702','202703','202704','202705','202706'];
   const events=[];
   for(const dates of ranges){
     const url='https://site.api.espn.com/apis/site/v2/sports/soccer/tur.1/scoreboard?dates='+dates+'&limit=500';
