@@ -1,0 +1,17 @@
+name: Kupon internet scores regression
+on:
+  push:
+    branches: [fix/kupon-internet-scores-20261021]
+  pull_request:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify football scores mapping
+        run: node tools/kupon-sports.test.cjs
+      - name: Verify HTML scripts and 20 award videos
+        run: node tools/ceremony-motion/ceremony-page.test.cjs
