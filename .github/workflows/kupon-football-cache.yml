@@ -1,5 +1,5 @@
 name: Kupon skor onbellegi
-# Includes ESPN fallback when the primary provider denies access.
+# ESPN fallback uses YYYYMM month queries to avoid HTTP 400.
 on:
   push:
     branches: [main]
