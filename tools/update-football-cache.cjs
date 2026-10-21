@@ -13,6 +13,42 @@ async function read(url){
     return Array.isArray(data.events)?data.events:[];
   }finally{clearTimeout(timer)}
 }
+async function readEspn(){
+  const ranges=['20260801-20261130','20261201-20270331','20270401-20270630'];
+  const events=[];
+  for(const dates of ranges){
+    const url='https://site.api.espn.com/apis/site/v2/sports/soccer/tur.1/scoreboard?dates='+dates+'&limit=500';
+    const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),20000);
+    try{
+      const response=await fetch(url,{signal:controller.signal,headers:{'Accept':'application/json','User-Agent':'Mozilla/5.0'}});
+      if(!response.ok)throw new Error('ESPN HTTP '+response.status);
+      const data=await response.json();
+      if(!Array.isArray(data.events))throw new Error('ESPN returned no events array');
+      for(const item of data.events){
+        const game=item.competitions&&item.competitions[0];
+        const teams=game&&game.competitors||[];
+        const home=teams.find(x=>x.homeAway==='home'),away=teams.find(x=>x.homeAway==='away');
+        if(!home||!away)continue;
+        const score=x=>typeof x.score==='object'?x.score.displayValue:x.score;
+        const status=game.status||item.status||{};
+        const finished=!!(status.type&&status.type.completed);
+        const date=String(item.date||game.date||'');
+        events.push({
+          idEvent:'espn-'+item.id,idLeague:LEAGUE,strSeason:SEASON,
+          intRound:null,
+          strHomeTeam:home.team&&home.team.displayName||home.team&&home.team.name,
+          strAwayTeam:away.team&&away.team.displayName||away.team&&away.team.name,
+          dateEvent:date.slice(0,10),strTimestamp:date,
+          strStatus:finished?'Match Finished':'Not Started',
+          intHomeScore:finished?score(home):null,
+          intAwayScore:finished?score(away):null
+        });
+      }
+      console.log('ESPN',dates,'matches',data.events.length);
+    }finally{clearTimeout(timer)}
+  }
+  return events;
+}
 (async()=>{
   const urls=[
     base+'eventsseason.php?id='+LEAGUE+'&s='+SEASON,
@@ -23,10 +59,14 @@ async function read(url){
   try{events=await read(urls[0]);console.log('season events:',events.length)}
   catch(e){console.log('season endpoint failed:',e.message)}
   if(events.length<10){
-    for(const url of urls.slice(1)){
+    for(const url of urls.slice(1,3)){
       try{events.push(...await read(url))}catch(e){console.log('round request failed:',e.message)}
       if(events.length>=100)break;
     }
+  }
+  if(events.length<10){
+    try{events=await readEspn();console.log('ESPN fallback events:',events.length)}
+    catch(e){console.error('ESPN fallback failed:',e.message)}
   }
   const seen=new Set();
   events=events.filter(e=>{
