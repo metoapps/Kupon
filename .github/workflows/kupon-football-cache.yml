@@ -1,4 +1,5 @@
 name: Kupon skor onbellegi
+# Includes ESPN fallback when the primary provider denies access.
 on:
   push:
     branches: [main]
