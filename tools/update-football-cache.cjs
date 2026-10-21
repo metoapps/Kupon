@@ -16,7 +16,7 @@ async function read(url){
 (async()=>{
   const urls=[
     base+'eventsseason.php?id='+LEAGUE+'&s='+SEASON,
-    ...Array.from({length:38},(_,i)=>base+'eventsround.php?id='+LEAGUE+'&r='+(i+1)+'&s='+SEASON)
+    ...Array.from({length:12},(_,i)=>base+'eventsround.php?id='+LEAGUE+'&r='+(i+1)+'&s='+SEASON)
   ];
   // Season endpoint preferred; round endpoints only needed when season endpoint is empty.
   let events=[];
