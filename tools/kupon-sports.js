@@ -62,11 +62,26 @@
         clearTimeout(timer);if(signal)signal.removeEventListener('abort',cancel);
       }
     }
+    // Same-origin snapshot avoids Safari/CORS failures against third-party score providers.
+    // Only an explicitly validated season/league snapshot may be used.
+    let cachedEvents=[];
+    try{
+      const cacheResponse=await fetcher('assets/data/football-'+season+'.json',{signal});
+      if(cacheResponse.ok){
+        const snapshot=await cacheResponse.json();
+        if(normalize(snapshot.league)===normalize(league)&&normalize(snapshot.season)===normalize(season)&&
+           Array.isArray(snapshot.events)){
+          cachedEvents=snapshot.events.filter(e=>validLeague(e,league,season));
+        }
+      }
+    }catch(_){/* cache is optional; use provider if unavailable */}
+    const cached=select(cachedEvents,matches,resolve,eventTime,week);
+    const needed=Array.isArray(matches)?matches.length:0;
+    if(cached.length && (!needed||cached.length===needed))return cached;
     let roundEvents=[],roundError=null;
     try{roundEvents=await request(base+'eventsround.php'+q);}
     catch(err){roundError=err;}
-    const needed=Array.isArray(matches)?matches.length:0;
-    let selected=select(roundEvents,matches,resolve,eventTime,week);
+    let selected=select([...cachedEvents,...roundEvents],matches,resolve,eventTime,week);
     if(needed&&selected.length===needed)return selected;
     if(!needed&&selected.length)return selected;
     let seasonEvents=[];
@@ -74,9 +89,9 @@
       seasonEvents=await request(base+'eventsseason.php?id='+encodeURIComponent(league)+'&s='+encodeURIComponent(season));
     }catch(err){
       if(selected.length)return selected;
-      throw roundError||err;
+      throw new Error('İnternet skor servisine ulaşılamadı ve güncel yerel skor kaydı bulunamadı. Lütfen biraz sonra tekrar dene.');
     }
-    selected=select([...roundEvents,...seasonEvents],matches,resolve,eventTime,week);
+    selected=select([...cachedEvents,...roundEvents,...seasonEvents],matches,resolve,eventTime,week);
     if(!selected.length)throw new Error(
       needed?'Bu maçlar için güvenilir eşleşme bulunamadı. Takım adları veya sezon verileri eksik olabilir; skorları elle kontrol et.':
       'Bu lig ve hafta için fikstür bulunamadı. Servis verisini kontrol et veya hazır fikstürü kullan.'
