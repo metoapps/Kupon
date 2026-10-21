@@ -21,6 +21,7 @@
 <div id="kok"><div class="yukleme">Kupon yükleniyor…</div></div>
 <script src="https://cdn.jsdelivr.net/npm/react@18.3.1/umd/react.production.min.js" crossorigin></script>
 <script src="https://cdn.jsdelivr.net/npm/react-dom@18.3.1/umd/react-dom.production.min.js" crossorigin></script>
+<script src="tools/ceremony-motion/ceremony-gate.js"></script>
 <script id="kp-ses">
 (function () {
   try {
@@ -1122,6 +1123,7 @@ function Kupon() {
     }
     /* Pro screens and read-only automatic result checking. */
     const [merkezSekme,setMerkezSekme]=useState('ozet');
+    const [toreVideo,setToreVideo]=useState(null);
     const [detayAcik,setDetayAcik]=useState(false);
     useEffect(() => {
         if (!detayAcik || merkezSekme !== 'ozet' || sekme !== 'merkez') return;
@@ -1274,9 +1276,20 @@ function Kupon() {
         const match=(h,i)=>T(h.maclar[i].e).ad+' '+h.sonuclar[i].join('–')+' '+T(h.maclar[i].d).ad;
         const latest=KAnaliz.summary(weeks,weeks.length-1);
         const kutlama=haftaOdulSahnesi(weeks);
+        // Only a fully scored archived week can unlock the voluntary ceremony.
+        const tamamlandi=!!(kutlama && kutlama.h && Array.isArray(kutlama.h.maclar) && kutlama.h.maclar.length>0 &&
+          Array.isArray(kutlama.h.sonuclar) && kutlama.h.sonuclar.length===kutlama.h.maclar.length &&
+          kutlama.h.sonuclar.every(sn=>Array.isArray(sn)&&sn.length===2&&sn.every(n=>Number.isInteger(n)&&n>=0)));
+        const toreSecimi=window.KuponCeremonyGate&&window.KuponCeremonyGate.choose(kutlama,tamamlandi);
         const haftalikOduller=kutlama&&H('section',{className:'kp-haftalik-oduller','aria-label':'Haftalık kupa ve patlıcan ödülleri'},
           H('div',{className:'kp-odul-grup'},H('h3',null,'🏆 Haftanın Şampiyonu'),H('div',{className:'kp-odul-kisiler'},kutlama.champ.map(x=>odulKarti(x,'champ',kutlama.h.no,name)))),
-          H('div',{className:'kp-odul-grup kp-odul-patlican'},H('h3',null,'🍆 Haftanın Patlıcanı'),H('div',{className:'kp-odul-kisiler'},kutlama.last.map(x=>odulKarti(x,'last',kutlama.h.no,name)))));
+          H('div',{className:'kp-odul-grup kp-odul-patlican'},H('h3',null,'🍆 Haftanın Patlıcanı'),H('div',{className:'kp-odul-kisiler'},kutlama.last.map(x=>odulKarti(x,'last',kutlama.h.no,name)))),
+          toreSecimi&&H('div',{className:'kp-tore-ac'},H('button',{type:'button',className:'kp-tore-baslat',onClick:()=>setToreVideo(toreSecimi)},'🎬 Haftanın ödül törenini izle · Sesli video')),
+          toreVideo&&toreSecimi&&toreVideo.src===toreSecimi.src&&H('div',{className:'kp-tore-arka',role:'presentation',onClick:()=>setToreVideo(null)},
+            H('div',{className:'kp-tore-pencere',role:'dialog','aria-modal':'true','aria-label':'Haftanın ödül töreni',onClick:e=>e.stopPropagation()},
+              H('div',{className:'kp-tore-ust'},H('strong',null,'🏆 '+name(kutlama.champ[0][0])+' · '+name(kutlama.last[0][0])),H('button',{type:'button',className:'kp-tore-kapat','aria-label':'Videoyu kapat',onClick:()=>setToreVideo(null)},'✕')),
+              H('video',{key:toreVideo.src,src:toreVideo.src,controls:true,playsInline:true,preload:'metadata',autoPlay:false,style:{display:'block',width:'100%',maxHeight:'75dvh',background:'#000'},onError:()=>setToreVideo(null)},'Tarayıcınız video oynatmayı desteklemiyor.'),
+              H('small',null,'Ses için oynat düğmesine dokun. Video otomatik başlamaz.'))));
         const genelSirali=klasman || [];
         const siralama=latest && Array.isArray(latest.hareket) ? latest.hareket.slice().sort((a,b)=>a.sira-b.sira).slice(0,5) : [];
         const arena=H('section',{className:'kp-arena', 'aria-label':'Sezon rekabet panosu'},
@@ -5016,6 +5029,15 @@ html,body,#kok,.kp,.kp *{cursor:url("data:image/png;base64,iVBORw0KGgoAAAANSUhEU
 @keyframes kpOdulUc{0%{transform:scale(.83);opacity:0}40%{transform:scale(1.1) rotate(3deg)}75%{transform:rotate(-2deg)}100%{transform:none;opacity:1}}
 @media(max-width:650px){.kp-haftalik-oduller{grid-template-columns:1fr}.kp-odul-sahne{height:150px}.kp-odul-sahne img{max-height:146px}}
 @media(prefers-reduced-motion:reduce){.kp-odul-sahne{animation:none!important}}
+
+/* 20 video ceremony — user initiated, accessible on mobile. */
+.kp-tore-ac{grid-column:1/-1;text-align:center;padding:10px 4px 4px}
+.kp-tore-baslat{background:linear-gradient(120deg,#e6c777,#a87b29);border:0;border-radius:12px;padding:13px 18px;color:#16110a;font-weight:800;font-size:14px;cursor:pointer;min-height:44px}
+.kp-tore-arka{position:fixed;inset:0;z-index:999999;background:rgba(0,0,0,.88);display:flex;align-items:center;justify-content:center;padding:12px;box-sizing:border-box}
+.kp-tore-pencere{width:min(100%,440px);max-height:96dvh;overflow:auto;background:#111722;color:#f5e8c6;border:1px solid #6f5830;border-radius:14px;padding:10px;box-sizing:border-box}
+.kp-tore-ust{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:4px 4px 10px;font-size:14px}
+.kp-tore-kapat{background:#303846;color:white;border:0;border-radius:9px;min-width:44px;min-height:44px;font-size:22px;cursor:pointer}
+.kp-tore-pencere small{display:block;text-align:center;padding:8px;color:#d5c9ac}
 </style>
 </body>
 </html>

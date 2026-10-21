@@ -1,0 +1,18 @@
+name: Kupon ceremony integration checks
+on:
+  push:
+    branches: [feature/motion-engine-ceremony-pilot]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify 20 combinations and source syntax
+        run: |
+          node tools/ceremony-motion/ceremony-gate.test.cjs
+          node tools/ceremony-motion/ceremony-page.test.cjs
