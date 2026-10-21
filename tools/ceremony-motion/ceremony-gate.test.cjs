@@ -1,15 +1,15 @@
-const assert=require('node:assert/strict');const {choose}=require('./ceremony-gate.js');
-const url='/assets/ceremony/meto-lort-v7.mp4';
-const award=(w,l)=>({h:{no:42},champ:w.map(x=>[x,20]),last:l.map(x=>[x,0])});
-assert.equal(choose(award(['meto'],['lort']),url,true).src,url);
-assert.equal(choose(award(['fero'],['lort']),url,true),null);
-assert.equal(choose(award(['meto'],['josh']),url,true),null);
-assert.equal(choose(award(['meto','fero'],['lort']),url,true),null);
-assert.equal(choose(award(['meto'],['lort','latte']),url,true),null);
-assert.equal(choose(null,url),null);
-assert.equal(choose(award(['meto'],['lort']),'https://example.com/evil.mp4',true),null);
-assert.equal(choose(award(['meto'],['lort']),'',true),null);
-console.log('CEREMONY_GATE_PASS 8 cases');
-
-assert.equal(choose(award(['meto'],['lort']),url,false),null);
-assert.equal(choose(award(['meto'],['lort']),url),null);
+const assert=require('node:assert/strict');
+const {choose,all}=require('./ceremony-gate.js');
+const mk=(winner,loser)=>({h:{no:12},champ:[[winner,9]],last:[[loser,0]]});
+assert.equal(all().length,20);
+assert.equal(new Set(all().map(x=>x.src)).size,20);
+for(const p of all()){
+ const out=choose(mk(p.winner,p.loser),true);
+ assert.equal(out.src,p.src);assert.equal(out.autoplay,false);
+}
+assert.equal(choose(mk('meto','lort'),false),null);
+assert.equal(choose(mk('meto','meto'),true),null);
+assert.equal(choose(mk('unknown','lort'),true),null);
+assert.equal(choose({h:{no:2},champ:[['meto',1],['fero',1]],last:[['lort',0]]},true),null);
+assert.equal(choose({h:{no:2},champ:[['meto',1]],last:[['lort',0],['josh',0]]},true),null);
+console.log('PASS: 20 unique videos + 5 safety cases');
