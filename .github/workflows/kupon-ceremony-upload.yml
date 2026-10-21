@@ -1,0 +1,72 @@
+name: Kupon 20 video aktarimi
+run-name: Kupon 20 video paketini gelistirme dalina yukle
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: kupon-ceremony-upload
+  cancel-in-progress: false
+
+jobs:
+  upload:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Gelistirme dalini al
+        uses: actions/checkout@v4
+        with:
+          ref: feature/motion-engine-ceremony-pilot
+          persist-credentials: true
+      - name: Google Drive paketini indir
+        run: |
+          python -m pip install --disable-pip-version-check 'gdown==5.2.0'
+          gdown --id '1AZCZWEFh0fcU9UO3737iMm9lwkAv7HTZ' -O /tmp/kupon-20.zip
+          echo '3fb977db71cdb9385adfaace28f4917a4dc9884900e6ce8cdf2cc1539c746826  /tmp/kupon-20.zip' | sha256sum -c -
+      - name: 20 videoyu guvenle dogrula ve ayikla
+        run: |
+          python - <<'PY'
+          import hashlib, itertools, json, pathlib, zipfile
+          archive=pathlib.Path('/tmp/kupon-20.zip')
+          players=('METO','LORT','FERO','LATTE','JOSH')
+          expected={f'videos/{w}-{l}.mp4' for w,l in itertools.permutations(players,2)}
+          dest=pathlib.Path('assets/ceremony/videos')
+          with zipfile.ZipFile(archive) as z:
+              manifest=json.loads(z.read('manifest.json'))
+              entries=manifest['entries']
+              assert len(entries)==20 and manifest['count']==20
+              assert {e['video'] for e in entries}==expected
+              assert len(set(e['video'] for e in entries))==20
+              for e in entries:
+                  name=e['video']
+                  info=z.getinfo(name)
+                  assert info.file_size < 25_000_000, name
+                  blob=z.read(name)
+                  assert hashlib.sha256(blob).hexdigest()==e['sha256'], name
+                  dest.mkdir(parents=True,exist_ok=True)
+                  (dest/pathlib.Path(name).name).write_bytes(blob)
+          print('PASS: 20/20 video, manifest SHA-256, expected pairs')
+          PY
+      - name: MP4 dosyalarini kontrol et
+        run: |
+          count=$(find assets/ceremony/videos -maxdepth 1 -name '*.mp4' | wc -l)
+          test "$count" -eq 20
+          for f in assets/ceremony/videos/*.mp4; do
+            ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1 "$f" | grep -q '^duration=15'
+            ffprobe -v error -select_streams a -show_entries stream=codec_name -of default=noprint_wrappers=1 "$f" | grep -q 'codec_name=aac'
+          done
+          echo 'PASS: 20 MP4, 15 saniye, gomulu AAC muzik'
+      - name: Yalnizca gelistirme dalina kaydet
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add assets/ceremony/videos/*.mp4
+          if git diff --cached --quiet; then
+            echo 'Dosyalar zaten ayni; yeni commit gerekmiyor.'
+          else
+            git commit -m 'assets(kupon): upload verified 20 ceremony videos with audio'
+            git push origin HEAD:feature/motion-engine-ceremony-pilot
+          fi
