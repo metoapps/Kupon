@@ -1,15 +1,19 @@
-# METO–LORT V7 — canlı öncesi emniyet kapısı
+# Kupon — 20 kombinasyon canlı yayın kontrol listesi
 
-Canlı Kupon’un mevcut ödül sistemine dokunulmadı. Bu klasörde bulunan `ceremony-gate.js`, birinci METO / sonuncu LORT için **tek kazanan ve tek kaybeden** olduğu durumda, yalnızca önceden doğrulanmış sabit MP4 yolunu döndürür. Eşitlik veya farklı oyuncu sonucu varsa hiçbir video önermez. Videoyu otomatik oynatmaz; hiçbir canlı sayfaya henüz bağlanmadı.
+Durum: **CANLI DEĞİL.** Kupon main dalına veya GitHub Pages yayınına değişiklik yapılmadı.
 
-Onaylı görsel/ses kaynak SHA kimlikleri Motion Engine [V7-LOCK.json](https://github.com/metoapps/motion-engine/blob/feature/kupon-ceremony-pilot/integrations/kupon/v3-template/V7-LOCK.json) ile eşleşiyor.
+Geliştirme dalında `ceremony-gate.js` artık METO, LORT, FERO, LATTE ve JOSH arasında 20 farklı yönlü eşleşmeyi destekler. Sadece kesinleşmiş sonuçta, tek şampiyon ve tek sonuncu varsa video seçer; beraberlikte veya eksik sonuçta video açmaz. Otomatik oynatma yoktur. Mevcut puanlama sistemi değiştirilmedi.
 
-## Canlıya alma ön şartları
-1. V7 MP4 dosyasını gerçekten `assets/ceremony/meto-lort-v7.mp4` yoluna **binary olarak** yükle.
-2. Bu dosyayı GitHub Pages'de HTTP 200 / `video/mp4` ile doğrula. Yayınlanan içeriğin hash'ini kontrol et.
-3. Önce Kupon ana uygulamasına, haftalık sonuçlar kesinleşince ve yalnızca METO–LORT eşleşmesinde, kullanıcı onayıyla oynatma düğmesi ekle. Eşitlikler ve henüz tamamlanmamış haftalar için gösterme.
-4. Mobil tarayıcıda video ve müziğin kullanıcı dokunuşuyla başladığını, kontrolü kapatınca durduğunu, mevcut puanların değişmediğini test et.
+Kaynak paket: `KUPON-20-LATTE-GUNCEL-VIDEO-MUZIK.zip`. Paket içinde `videos/AD1-AD2.mp4`, `music/AD1-AD2.wav`, `covers/AD1-AD2.jpg` ve manifest bulunur. 20 videonun SHA-256 değeri manifest ile doğrulandı. LATTE güncel fotoğrafları kullanıldı.
 
-**Şu anda eksik:** MP4'ün GitHub Pages'e yüklenmesi ve gerçek telefon smoke testi. Bu ön şartlar sağlanmadan mevcut taslak PR birleştirilmeyecek. Başka oyuncu kombinasyonlarında kullanılacak posterler/MP4'ler ayrıca onaylanmalı.
+## Yayın için zorunlu adımlar
 
-Test: `node tools/ceremony-motion/ceremony-gate.test.cjs`.
+1. ZIP'teki 20 MP4 dosyasını `assets/ceremony/videos/` altına binary olarak aktar. GitHub bağlantısındaki mevcut içerik yazma aracı sadece UTF-8 metin kabul ettiğinden bu adım henüz tamamlanamadı.
+2. GitHub Pages'te 20 URL'nin tamamının HTTP 200 ve video/mp4 ile sunulduğunu doğrula; gerçek MP4 hash'lerini manifest ile karşılaştır.
+3. `index.html` haftalık ödül ekranına kullanıcı tıklamasıyla açılan, müzikli bir video modalı bağla. `choose(award, finalized)` yalnızca haftanın tüm maçları ve puanları kesinleşince `finalized=true` almalıdır. `haftaOdulSahnesi` tek başına kesinleşme kanıtı değildir.
+4. iOS Safari ve Android Chrome üzerinde 20 videodan örneklem, ses ve kapatma testi yap; puanlar, genel klasman ve Düdükpayı bağlantısı değişmemeli.
+5. Tüm kontroller PASS olursa PR birleştir ve canlı GitHub Pages URL'sini tekrar kontrol et.
+
+**Uyarı:** MP4 dosyaları ve modal entegrasyonu eksikken PR'ı birleştirme; aksi takdirde bozuk bağlantılar gösterilir.
+
+Yerel test: `node tools/ceremony-motion/ceremony-gate.test.cjs`.
