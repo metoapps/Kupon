@@ -32,7 +32,6 @@ jobs:
         run: |
           python - <<'PY'
           import zipfile, pathlib, io
-          from PIL import Image
           names = {'meto','lort','fero','buzlulatte','josh'}
           with zipfile.ZipFile('/tmp/kupon-artwork.zip') as z:
               expected={'assets/images/kupon-ana-afis.webp'} | {f'assets/avatars/{n}.webp' for n in names}
