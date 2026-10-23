@@ -29,7 +29,7 @@ jobs:
           DRIVE_FILE_ID: ${{ inputs.drive_file_id || '1hxgv1CwQYwgXjxwbRi-2IfulkAYo2Lg2' }}
         run: |
           python -m pip install --quiet gdown
-          gdown --id "$DRIVE_FILE_ID" -O /tmp/kupon-artwork.zip
+          gdown "$DRIVE_FILE_ID" -O /tmp/kupon-artwork.zip
           echo "5fb2c9c7cd18ff14400250bfd8efff0087d5b0bf6b354153891a7ca345a63377  /tmp/kupon-artwork.zip" | sha256sum --check
       - name: Paketi dogrula ve ac
         run: |
