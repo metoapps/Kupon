@@ -1,0 +1,59 @@
+name: Kupon afis ve avatar yayini
+on:
+  workflow_dispatch:
+    inputs:
+      drive_file_id:
+        description: "Google Drive ZIP dosya kimligi"
+        required: true
+        type: string
+permissions:
+  contents: write
+concurrency:
+  group: kupon-artwork-deploy
+  cancel-in-progress: false
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Kodu al
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          persist-credentials: true
+      - name: Gorsel paketini indir
+        env:
+          DRIVE_FILE_ID: ${{ inputs.drive_file_id }}
+        run: |
+          python -m pip install --quiet gdown
+          gdown --id "$DRIVE_FILE_ID" -O /tmp/kupon-artwork.zip
+          echo "5fb2c9c7cd18ff14400250bfd8efff0087d5b0bf6b354153891a7ca345a63377  /tmp/kupon-artwork.zip" | sha256sum --check
+      - name: Paketi dogrula ve ac
+        run: |
+          python - <<'PY'
+          import zipfile, pathlib, io
+          from PIL import Image
+          names = {'meto','lort','fero','buzlulatte','josh'}
+          with zipfile.ZipFile('/tmp/kupon-artwork.zip') as z:
+              expected={'assets/images/kupon-ana-afis.webp'} | {f'assets/avatars/{n}.webp' for n in names}
+              for name in expected:
+                  assert name in z.namelist(), f'Eksik: {name}'
+                  b=z.read(name)
+                  assert len(b)<1000000, f'Fazla buyuk: {name}'
+                  target=pathlib.Path(name)
+                  target.parent.mkdir(parents=True,exist_ok=True)
+                  target.write_bytes(b)
+              assert len(z.namelist()) <= 8, 'Unexpected extra files'
+          print('PASS: 1 banner + 5 avatars')
+          PY
+      - name: Gorselleri canli dala ekle
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add assets/images/kupon-ana-afis.webp assets/avatars/{meto,lort,fero,buzlulatte,josh}.webp
+          if git diff --cached --quiet; then
+            echo "Already up to date"
+          else
+            git commit -m "assets: publish Kupon group banner and five caricature avatars"
+            git push origin HEAD:main
+          fi
