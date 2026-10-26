@@ -77,24 +77,32 @@
     }catch(_){/* cache is optional; use provider if unavailable */}
     const cached=select(cachedEvents,matches,resolve,eventTime,week);
     const needed=Array.isArray(matches)?matches.length:0;
-    if(cached.length && (!needed||cached.length===needed))return cached;
+    // Snapshot may contain all fixtures yet no final scores. Always query the
+    // provider and prefer its event over the cached version of the same ID.
     let roundEvents=[],roundError=null;
     try{roundEvents=await request(base+'eventsround.php'+q);}
     catch(err){roundError=err;}
-    let selected=select([...cachedEvents,...roundEvents],matches,resolve,eventTime,week);
-    if(needed&&selected.length===needed)return selected;
-    if(!needed&&selected.length)return selected;
-    let seasonEvents=[];
+    let selected=select([...roundEvents,...cachedEvents],matches,resolve,eventTime,week);
+    // A full fixture match does not imply finalized scores. Also query season
+    // results to catch delayed round updates and postponed games.
+    let seasonEvents=[],seasonError=null;
     try{
       seasonEvents=await request(base+'eventsseason.php?id='+encodeURIComponent(league)+'&s='+encodeURIComponent(season));
-    }catch(err){
-      if(selected.length)return selected;
-      throw new Error('İnternet skor servisine ulaşılamadı ve güncel yerel skor kaydı bulunamadı. Lütfen biraz sonra tekrar dene.');
+    }catch(err){seasonError=err;}
+    function hasScore(e){return e.intHomeScore!==null&&e.intHomeScore!==undefined&&e.intAwayScore!==null&&e.intAwayScore!==undefined&&String(e.intHomeScore)!==''&&String(e.intAwayScore)!=='';}
+    // For each event, take a scored record when available. Otherwise use the
+    // latest fetched source; local snapshot is strictly last priority.
+    const byId=new Map();
+    for(const ev of [...cachedEvents,...roundEvents,...seasonEvents]){
+      const id=normalize(ev.idEvent)||[ev.strHomeTeam,ev.strAwayTeam,ev.dateEvent].join('|');
+      const prev=byId.get(id);
+      if(!prev||hasScore(ev)||!hasScore(prev))byId.set(id,ev);
     }
-    selected=select([...cachedEvents,...roundEvents,...seasonEvents],matches,resolve,eventTime,week);
+    selected=select([...byId.values()],matches,resolve,eventTime,week);
     if(!selected.length)throw new Error(
-      needed?'Bu maçlar için güvenilir eşleşme bulunamadı. Takım adları veya sezon verileri eksik olabilir; skorları elle kontrol et.':
-      'Bu lig ve hafta için fikstür bulunamadı. Servis verisini kontrol et veya hazır fikstürü kullan.'
+      roundError&&seasonError?'İnternet skor servisine ulaşılamadı ve yerel fikstür bulunamadı.':
+      needed?'Bu maçlar için güvenilir eşleşme bulunamadı; skorları elle kontrol et.':
+      'Bu lig ve hafta için fikstür bulunamadı.'
     );
     return selected;
   }
