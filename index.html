@@ -181,11 +181,11 @@ const depo = {
             const v = localStorage.getItem(k);
             return v === null ? null : { key: k, value: v, shared: false };
         }
-        const r = await fetch(SB_URL + "/rest/v1/kupon_veri?select=deger&anahtar=eq." + encodeURIComponent(k), { headers: SB_BASLIK });
+        const r = await fetch(SB_URL + "/rest/v1/kupon_veri?select=deger,deger_hash&anahtar=eq." + encodeURIComponent(k), { headers: SB_BASLIK });
         if (!r.ok)
             throw new Error("okuma hatasi " + r.status);
         const d = await r.json();
-        return d.length ? { key: k, value: d[0].deger, shared: true } : null;
+        return d.length ? { key: k, value: d[0].deger, hash: d[0].deger_hash, shared: true } : null;
     },
     async set(k, v, s = true) {
         if (MISAFIR) throw new Error("Misafir görünümü salt okunur.");
@@ -206,12 +206,12 @@ const depo = {
         if (MISAFIR) throw new Error("Misafir görünümü salt okunur.");
         const yeni = onceki === null || onceki === undefined;
         const ham = yeni ? null : (typeof onceki === "string" ? onceki : JSON.stringify(onceki));
-        // PostgREST text filters need quoted literals for JSON values containing
-        // commas, periods, parentheses or escaped quotes. Preserve CAS semantics.
-        const pgText = x => '"' + String(x).replace(/\\/g, '\\\\').replace(/"/g, '\\"') + '"';
-        const filtre = yeni
-            ? ""
-            : "?anahtar=eq." + encodeURIComponent(k) + "&deger=eq." + encodeURIComponent(pgText(ham));
+        const check = yeni ? null : await depo.get(k);
+        if (!yeni && (!check || check.value !== ham)) throw new Error("Kayıt başka bir cihazda değişti. Yenileyip tekrar dene.");
+        const oncekiHash = check && check.hash;
+        // Short database-generated digest avoids sending 10KB+ JSON in a URL.
+        // The comparison still rejects concurrent edits.
+        const filtre = yeni ? "" : "?anahtar=eq." + encodeURIComponent(k) + "&deger_hash=eq." + encodeURIComponent(oncekiHash);
         const r = await fetch(SB_URL + "/rest/v1/kupon_veri" + filtre, {
             method: yeni ? "POST" : "PATCH",
             headers: { ...SB_BASLIK, Prefer: "return=representation" },
