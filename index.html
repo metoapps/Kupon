@@ -1429,18 +1429,36 @@ function Kupon() {
             });
         });
         const tarih = new Date(sonH.kapanis || Date.now()).toLocaleDateString("tr-TR", { timeZone: "Europe/Istanbul", day: "numeric", month: "long", year: "numeric" });
+        const haftalik=Object.entries(sonH.puanlar||{}).filter(([,p])=>Number.isFinite(Number(p))).sort((x,y)=>Number(y[1])-Number(x[1]));
+        const isimBul=slug=>((kurulum&&kurulum.oyuncular)||[]).find(o=>o.slug===slug)?.isim || (sonH.isimler&&sonH.isimler[slug]) || slug;
+        const lider=haftalik.length?haftalik.filter(x=>Number(x[1])===Number(haftalik[0][1])):[];
+        const kisiSayisi=Object.keys(sonH.tahminler||{}).length;
+        const macSayisi=(sonH.maclar||[]).length;
+
         return H("article", { className: "kp-gazete kp-gazete-giris", "aria-label": "Haftanın manşeti" },
             H("div", { className: "kp-gazete-sahne", "aria-hidden": true },
                 H("img", { src: MANSET_GORSEL, alt: "" })),
             !zorla ? H("button", { className: "kp-gazete-kapa", type: "button", "aria-label": "Kapat", onClick: () => setMansetKapali(true) }, "×") : null,
+            H("div", { className: "kp-manset-serit", "aria-hidden": true }, H("span",null,"HAFTANIN HİKÂYESİ"),H("span",null,"●"),H("span",null,"TRİBÜN GAZETESİ")),
             H("div", { className: "kp-gazete-name" }, "Kupon"),
+            H("p", { className: "kp-manset-slogan" }, "HER HAFTA BİR HİKÂYE. HER TAHMİN BİR İDDİA."),
+
             H("div", { className: "kp-gazete-ust" },
                 H("span", null, "Spor eki"),
                 H("span", null, m.no + ". sayı"),
                 H("span", null, tarih)),
+            H("div", { className: "kp-manset-etiket" }, H("span",null,"SON DAKİKA"),H("span",null,sonH.no+". HAFTA / KAPANIŞ RAPORU")),
             H("h2", { className: "kp-gazete-bas" }, m.baslik),
+            H("div", { className: "kp-manset-factline", "aria-label": "Haftanın verileri" },
+                H("span",null,H("strong",null,String(macSayisi)), " MAÇ"),
+                H("span",null,H("strong",null,String(kisiSayisi)), " KUPON"),
+                H("span",null,H("strong",null,lider.length?lider.map(x=>isimBul(x[0])).join(" & "):"—")," HAFTANIN ZİRVESİ")),
+
             H("div", { className: "kp-gazete-govde" },
+                H("div", { className: "kp-manset-yazi-bas" }, H("span",null,"SAHA KENARINDAN"), H("span",null,"◆")),
                 H("p", { className: "kp-gazete-dip" }, m.dip),
+                H("div", { className: "kp-manset-kunye" }, "Veriler: kapanmış hafta sonuçları", H("span",null,"KU PON · SPOR SERVİSİ")),
+
                 anlar.length ? H("div", { className: "kp-gazete-rozet" },
                     H("div", { className: "kp-et", style: { marginBottom: 8 } }, "Rozet basıldı"),
                     anlar.map(function (r) {
@@ -5060,6 +5078,34 @@ html,body,#kok,.kp,.kp *{cursor:url("data:image/png;base64,iVBORw0KGgoAAAANSUhEU
 .kp-tore-kapat{background:#303846;color:white;border:0;border-radius:9px;min-width:44px;min-height:44px;font-size:22px;cursor:pointer}
 .kp-tore-pencere small{display:block;text-align:center;padding:8px;color:#d5c9ac}
 </style>
-</body>
+<style>
+/* Editorial masthead 2026: typography, readable hierarchy and restrained motion */
+.kp-gazete{isolation:isolate;border-radius:15px;border:1px solid rgba(219,194,135,.33);background:#0a1020;box-shadow:0 22px 65px rgba(0,0,0,.42),inset 0 0 0 1px rgba(255,255,255,.035)}
+.kp-gazete-sahne img{filter:saturate(.83) contrast(1.07) brightness(.55);transform:scale(1.015)}
+.kp-gazete:before{background:linear-gradient(180deg,rgba(7,11,20,.38),rgba(7,11,20,.63) 49%,rgba(7,11,20,.96) 100%)}
+.kp-manset-serit,.kp-manset-slogan,.kp-manset-etiket,.kp-manset-factline,.kp-manset-yazi-bas,.kp-manset-kunye{position:relative;z-index:2}
+.kp-manset-serit{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:10px 20px;background:rgba(6,15,26,.8);border-bottom:1px solid rgba(219,194,135,.3);font:700 9px/1.3 'IBM Plex Mono',monospace;letter-spacing:.15em;color:#E6CCA0}
+.kp-gazete-name{font-size:clamp(2.5rem,7.5vw,5.3rem);font-style:normal;font-weight:800;letter-spacing:.11em;padding:21px 24px 0;text-shadow:0 2px 28px rgba(0,0,0,.5)}
+.kp-manset-slogan{text-align:center;font:600 9px/1.5 Figtree,sans-serif;letter-spacing:.22em;color:#D8C3A0;margin:5px 12px 7px}
+.kp-gazete-ust{border-top:1px solid rgba(223,201,160,.25);border-bottom:1px solid rgba(223,201,160,.3);background:rgba(3,9,17,.4);padding:11px 22px;letter-spacing:.1em;color:#CCD8DE}
+.kp-manset-etiket{display:flex;gap:12px;align-items:center;justify-content:center;margin:21px 12px 0;font:700 10px 'IBM Plex Mono',monospace;letter-spacing:.12em;color:#E5EDF3}
+.kp-manset-etiket span:first-child{background:#A92F42;color:white;border-radius:3px;padding:5px 9px}
+.kp-gazete-bas{max-width:1000px;margin:0 auto;padding:18px 22px 22px;font-style:normal;font-size:clamp(2.35rem,7vw,5.1rem);line-height:.99;letter-spacing:-.055em;font-weight:800;text-wrap:balance;text-shadow:0 12px 30px rgba(0,0,0,.6)}
+.kp-manset-factline{display:flex;justify-content:center;flex-wrap:wrap;gap:8px 20px;padding:12px 16px 18px;border-top:1px solid rgba(255,255,255,.14);border-bottom:1px solid rgba(255,255,255,.14);background:rgba(5,12,20,.46)}
+.kp-manset-factline span{display:flex;align-items:center;gap:7px;font:600 10px Figtree,sans-serif;letter-spacing:.07em;color:#BDCAD8}
+.kp-manset-factline strong{color:#F1D39C;font:700 14px 'IBM Plex Mono',monospace;letter-spacing:0}
+.kp-gazete-govde{padding:18px clamp(18px,4vw,36px) 23px;gap:11px;max-width:1050px;margin:auto;width:100%;box-sizing:border-box}
+.kp-manset-yazi-bas{display:flex;justify-content:space-between;border-bottom:1px solid rgba(228,202,155,.26);padding-bottom:8px;font:700 10px 'IBM Plex Mono',monospace;letter-spacing:.12em;color:#DABF8C}
+.kp-gazete-dip{font:400 clamp(14px,1.8vw,18px)/1.62 Figtree,sans-serif;font-style:normal;margin:2px 0 8px;color:#F1F3F5;text-wrap:pretty}
+.kp-manset-kunye{display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px;padding-top:7px;color:#98AAB8;font:500 10px 'IBM Plex Mono',monospace}
+.kp-gazete-rz{border-color:rgba(224,197,145,.32);background:rgba(7,14,23,.7);border-radius:9px;animation:kpMuhurYeni .48s cubic-bezier(.2,.8,.2,1) backwards}
+@keyframes kpMuhurYeni{from{transform:translateY(9px) rotate(-2deg);opacity:0}to{transform:none;opacity:1}}
+.kp-gazete-giris{animation:kpMansetGiris .65s cubic-bezier(.22,1,.36,1) backwards}
+@keyframes kpMansetGiris{from{transform:translateY(16px);opacity:0}to{transform:none;opacity:1}}
+.kp-gazete-kapa{top:42px;right:8px;min-height:44px;min-width:44px;background:rgba(0,0,0,.58)}
+@media(min-width:1100px){.kp-gazete-name{font-size:clamp(3.5rem,5.6vw,6rem)}.kp-gazete-bas{padding:26px 42px}.kp-gazete-govde{padding:22px 45px 30px}}
+@media(max-width:480px){.kp-manset-serit{font-size:8px;padding:9px 11px}.kp-manset-slogan{font-size:8px;letter-spacing:.1em}.kp-gazete-name{font-size:2.55rem;letter-spacing:.1em}.kp-gazete-ust{padding:9px 12px;font-size:8px;flex-wrap:wrap}.kp-gazete-bas{font-size:clamp(2.05rem,9.3vw,3rem);padding:17px 13px}.kp-manset-factline{gap:8px 12px}.kp-manset-etiket{font-size:8px}}
+@media(prefers-reduced-motion:reduce){.kp-gazete-giris,.kp-gazete-rz{animation:none!important}}
+</style></body>
 </html>
 
