@@ -1454,22 +1454,34 @@ function Kupon() {
                 H("span",null,H("strong",null,String(kisiSayisi)), " KUPON"),
                 H("span",null,H("strong",null,lider.length?lider.map(x=>isimBul(x[0])).join(" & "):"—")," HAFTANIN ZİRVESİ")),
 
-            H("div", { className: "kp-gazete-govde" },
-                H("div", { className: "kp-manset-yazi-bas" }, H("span",null,"SAHA KENARINDAN"), H("span",null,"◆")),
-                H("p", { className: "kp-gazete-dip" }, m.dip),
-                H("div", { className: "kp-manset-kunye" }, "Veriler: kapanmış hafta sonuçları", H("span",null,"KU PON · SPOR SERVİSİ")),
-
-                anlar.length ? H("div", { className: "kp-gazete-rozet" },
-                    H("div", { className: "kp-et", style: { marginBottom: 8 } }, "Rozet basıldı"),
-                    anlar.map(function (r) {
-                        return H("div", { key: r.slug + r.id, className: "kp-gazete-rz" },
-                            H("span", { className: "kp-rz-muhur" + (r.kotu ? " kotu" : "") }, r.ad),
-                            H("span", { className: "kp-gazete-rz-yazi" }, r.isim + (r.kotu ? " · bu da bir başarı" : " · doldu")));
-                    })) : null,
-                m.rez[0] ? H("div", { className: "kp-gazete-rz" },
-                    H("span", { className: "kp-rz-muhur" }, RZ_MUHUR),
-                    H("span", { className: "kp-gazete-rz-yazi" }, m.rez[0].isim + " · " + m.rez[0].ev + " " + m.rez[0].t[0] + "–" + m.rez[0].t[1] + " yazdı, " + m.rez[0].sn[0] + "–" + m.rez[0].sn[1] + " oldu")) : null));
+            H("div",{className:"kp-gazete-govde kp-manset-ozet"},
+                H("div",{className:"kp-manset-yazi-bas"},"HAFTANIN KISA HABERLERİ"),
+                H("div",{className:"kp-manset-haberler"},
+                    lider.length ? H("div",{className:"kp-manset-haber kp-manset-haber-lider"},
+                        H("span",{className:"kp-manset-haber-ikon"},"★"),
+                        H("div",null,H("span",{className:"kp-manset-haber-tip"},"ZİRVE"),
+                            H("strong",null,lider.map(x=>isimBul(x[0])).join(" & ")),
+                            H("small",null,haftalik[0][1]+" puanla haftanın lideri"))) : null,
+                    haftalik.length>1 ? H("div",{className:"kp-manset-haber kp-manset-haber-son"},
+                        H("span",{className:"kp-manset-haber-ikon"},"↓"),
+                        H("div",null,H("span",{className:"kp-manset-haber-tip"},"SON SIRA"),
+                            H("strong",null,haftalik.filter(x=>Number(x[1])===Number(haftalik[haftalik.length-1][1])).map(x=>isimBul(x[0])).join(" & ")),
+                            H("small",null,haftalik[haftalik.length-1][1]+" puanla haftayı kapattı"))) : null,
+                    m.rez&&m.rez[0] ? H("div",{className:"kp-manset-haber kp-manset-haber-surpriz"},
+                        H("span",{className:"kp-manset-haber-ikon"},"!"),
+                        H("div",null,H("span",{className:"kp-manset-haber-tip"},"TERS KÖŞE"),
+                            H("strong",null,m.rez[0].isim),
+                            H("small",null,m.rez[0].ev+" "+m.rez[0].t[0]+"–"+m.rez[0].t[1]+" dedi, "+m.rez[0].sn[0]+"–"+m.rez[0].sn[1]+" bitti"))) : null),
+                anlar.length ? H("section",{className:"kp-manset-rozetler"},
+                    H("div",{className:"kp-manset-yazi-bas"},"ROZET PANOSU"),
+                    H("div",{className:"kp-manset-rozet-grid"},
+                        anlar.map(r=>H("div",{key:r.slug+r.id,className:"kp-manset-rozet-kart"},
+                            H("span",{className:"kp-manset-rozet-etiket"+(r.kotu?" kotu":"")},r.ad),
+                            H("strong",null,r.isim))))) : null,
+                H("div",{className:"kp-manset-kunye"},"Kapanmış hafta sonuçları",
+                    H("span",null,"KUPON / SPOR EKİ"))));
     }
+
     function anketGorunumu() {
         if (!aktif || !kurulum) return null;
         const hf = String(aktif.hafta);
@@ -5106,6 +5118,24 @@ html,body,#kok,.kp,.kp *{cursor:url("data:image/png;base64,iVBORw0KGgoAAAANSUhEU
 @media(min-width:1100px){.kp-gazete-name{font-size:clamp(3.5rem,5.6vw,6rem)}.kp-gazete-bas{padding:26px 42px}.kp-gazete-govde{padding:22px 45px 30px}}
 @media(max-width:480px){.kp-manset-serit{font-size:8px;padding:9px 11px}.kp-manset-slogan{font-size:8px;letter-spacing:.1em}.kp-gazete-name{font-size:2.55rem;letter-spacing:.1em}.kp-gazete-ust{padding:9px 12px;font-size:8px;flex-wrap:wrap}.kp-gazete-bas{font-size:clamp(2.05rem,9.3vw,3rem);padding:17px 13px}.kp-manset-factline{gap:8px 12px}.kp-manset-etiket{font-size:8px}}
 @media(prefers-reduced-motion:reduce){.kp-gazete-giris,.kp-gazete-rz{animation:none!important}}
+</style><style>
+.kp-manset-haberler{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;padding:13px 0 23px}
+.kp-manset-haber{display:flex;gap:11px;border:1px solid rgba(236,221,193,.2);background:rgba(7,15,26,.78);padding:17px 14px;border-radius:12px;min-width:0}
+.kp-manset-haber-ikon{flex:0 0 30px;width:30px;height:30px;display:grid;place-items:center;background:#EAC783;color:#0B1420;border-radius:8px;font-weight:900;font-size:20px}
+.kp-manset-haber-son .kp-manset-haber-ikon{background:#D8A0C6}.kp-manset-haber-surpriz .kp-manset-haber-ikon{background:#8ED7F3}
+.kp-manset-haber>div{min-width:0;display:flex;flex-direction:column;gap:6px}
+.kp-manset-haber-tip{font:700 10px 'IBM Plex Mono',monospace;letter-spacing:.13em;color:#C3B8A3}
+.kp-manset-haber strong{font:700 clamp(17px,1.8vw,24px) Fraunces,Georgia,serif;color:#F5F3EE;overflow-wrap:anywhere}
+.kp-manset-haber small{font:500 12px/1.45 Figtree,sans-serif;color:#BECDD7}
+.kp-manset-rozetler{padding:15px 0 7px;border-top:1px solid rgba(236,221,193,.22)}
+.kp-manset-rozet-grid{display:flex;flex-wrap:wrap;gap:10px;margin-top:13px}
+.kp-manset-rozet-kart{display:flex;align-items:center;gap:12px;padding:11px 14px;min-height:47px;border:1px solid rgba(236,221,193,.24);border-radius:9px;background:rgba(12,22,34,.76);max-width:100%}
+.kp-manset-rozet-etiket{color:#8FDFFF;font:700 13px Fraunces,Georgia,serif;border-bottom:2px solid #3EC6FF;padding-bottom:2px;overflow-wrap:anywhere}
+.kp-manset-rozet-etiket.kotu{color:#E0A9BC;border-bottom-color:#D48BA6}
+.kp-manset-rozet-kart strong{font:600 13px Figtree,sans-serif;color:#F1F4F7}
+.kp-manset-ozet .kp-manset-kunye{border-top:1px solid rgba(236,221,193,.15);margin-top:16px;padding-top:12px}
+@media(max-width:900px){.kp-manset-haberler{grid-template-columns:1fr;gap:8px}.kp-manset-haber{padding:13px 14px}.kp-manset-rozet-grid{display:grid;grid-template-columns:1fr 1fr}}
+@media(max-width:550px){.kp-manset-rozet-grid{grid-template-columns:1fr}.kp-manset-rozet-kart{justify-content:space-between}.kp-manset-haber strong{font-size:19px}}
 </style></body>
 </html>
 
