@@ -1048,7 +1048,7 @@ function Kupon() {
         catch(e){if(e.name!=='AbortError')setBilgi('Paylaşım açılamadı. Görseli indirip paylaşabilirsin.');}
     }
     function yedekIndir(){
-        const data={format:'kupon-arsiv-v1',zaman:new Date().toISOString(),lig,sezon:TSDB.sezon,takimlar,oyuncular:kurulum.oyuncular,tablo,resmi,portfoy:portfoyAcik?portfoy:undefined,magaza,ayakta};
+        const data={format:'kupon-arsiv-v1',zaman:new Date().toISOString(),lig,sezon:TSDB.sezon,takimlar,oyuncular:kurulum.oyuncular,tablo,resmi,portfoy:portfoyAcik?portfoy:undefined,magaza};
         dosyaIndir(new Blob([JSON.stringify(data,null,2)],{type:'application/json'}),'kupon-'+lig+'-arsiv.json');
     }
     const H=React.createElement;
@@ -2289,7 +2289,7 @@ function Kupon() {
         await milliPaketKaydet({ schema: 2, activeEventId: guncel.eventId, events: paket.events }, kayit ? kayit.value : null);
         await gunlukYaz(audit("Milli Ara sonucu düzeltildi", guncel.eventId + " · " + guncel.haftalar[idx].no + ". hafta yeniden hesaplandı."));
     }
-    const nakitHesap = (slug, mag = magaza, ay = ayakta) => {
+    const nakitHesap = (slug, mag = magaza) => {
         const gelir = kasa[slug] || 0;
         const harcama = (mag.alimlar || []).filter(a => a.slug === slug).reduce((s, a) => s + (+a.fiyat || 0), 0);
         const verilen = (mag.zekat || []).filter(z => z.veren === slug).reduce((s, z) => s + (+z.miktar || 0), 0);
@@ -3320,7 +3320,6 @@ html,body,#kok{height:100%;height:100dvh;max-height:100%;max-height:100dvh;overf
                 eylem);
         }
         return H(React.Fragment, null,
-            kerizKutusu(),
             H("div", { className: "mg-bakiye" },
                 H("div", { className: "mg-bak" },
                     H("b", null, "NAKİT"),
@@ -3429,7 +3428,7 @@ html,body,#kok{height:100%;height:100dvh;max-height:100%;max-height:100dvh;overf
         return React.createElement(React.Fragment, null,
             React.createElement("div", { className: "kp-kat" },
                 React.createElement("h2", null, "Milli Ara Kupası"),
-                React.createElement("p", { className: "pr-muted" }, "Süper Lig'in ana puan tablosunu, portföyü ve rulet'i hiç etkilemez — ayrı bir kasa, ayrı bir sıralama."),
+                React.createElement("p", { className: "pr-muted" }, "Süper Lig'in ana puan tablosunu, portföyü ve haftalık klasmanı etkilemez — ayrı bir sıralamadır."),
                 React.createElement("p", { className: "pr-muted" }, "Haftalar farklı sayıda maç içerebildiği için sıralama puanı 100 üzerinden dengelenir. Golcü bonusu haftalık puana ve ödüle dahildir."),
                 React.createElement("p", { className: "pr-muted" }, "Eşitlikte toplam puan, ardından tam skor sayısı; tamamen eşitse isim sırası kullanılır."),
                 etkinlikBitti && React.createElement("p", { className: "pr-muted" }, "Bu etkinlik tamamlandı. Sonuçlar arşivde; sonraki etkinlik açıldığında ayrı bir şampiyonluk olarak hesaplanacak.")),
@@ -4297,24 +4296,12 @@ html,body,#kok,.kp,.kp *{cursor:url("data:image/png;base64,iVBORw0KGgoAAAANSUhEU
 .kp-oyuncu-teslim span:first-child{flex-shrink:0;color:#3EC6FF;font-size:14px}
 .kp-teslim-durum{padding:10px 13px!important;margin-bottom:12px!important;font-size:12px!important;line-height:1.55!important}
 </style>
+
 <style>
-/* Guided kupon -> card -> RULET progression, no automatic paid entry */
-.kp-akis-uyari{padding:15px;border:1px solid rgba(62,198,255,.4);border-radius:14px;background:linear-gradient(135deg,#123249,#101923);margin:0 0 13px;color:#EAF4FC}
-.kp-akis-baslik{font:700 13px/1.5 Figtree,sans-serif;color:#8BE0FF}
-.kp-akis-uyari p{font:400 13px/1.6 Figtree,sans-serif;color:#C6D8E4;margin:9px 0}
-.kp-akis-uyari button{width:100%;margin-top:8px}
-</style>
-<style>
-/* UX: RULET belongs to coupon, with improved large-screen editorial layout */
-.kp-rulet-gomulu{margin:22px 0 16px;scroll-margin-top:22px;padding:18px;border:1px solid rgba(62,198,255,.25);border-radius:18px;background:linear-gradient(160deg,#101d29,#10141c 55%);box-shadow:0 18px 42px rgba(0,0,0,.18)}
-.kp-rulet-gomulu-bas{padding:6px 4px 17px;border-bottom:1px solid rgba(255,255,255,.11);margin-bottom:17px}
-.kp-rulet-gomulu-bas h2{font:italic 700 clamp(26px,5vw,38px) Fraunces,Georgia,serif;margin:7px 0;color:#F4F0E6}
-.kp-rulet-gomulu-bas p{font:400 14px/1.6 Figtree,sans-serif;color:#BECDDD;margin:0;max-width:64ch}
-.kp-rulet-gomulu>.kp-kat{background:rgba(255,255,255,.025)}
+/* Responsive application desktop layout */
 @media(max-width:899px){
  .kp-nav-mobile{grid-template-columns:repeat(4,minmax(0,1fr))!important}
- .kp-rulet-gomulu{padding:12px;margin-top:18px}
-}
+ }
 @media(min-width:1100px){
  .kp-alt{width:236px!important;flex-basis:236px!important;background:linear-gradient(180deg,#111d29,#0b1018)!important;border-right:1px solid rgba(62,198,255,.15)!important;padding:30px 14px!important}
  .kp-alt:before{font-size:38px!important;color:#F4F0E6!important;padding:3px 13px 28px!important}
@@ -4325,16 +4312,11 @@ html,body,#kok,.kp,.kp *{cursor:url("data:image/png;base64,iVBORw0KGgoAAAANSUhEU
  .kp-masa{display:flex!important;flex-direction:column!important;gap:0!important}
  .kp-oyuncu-karsilama{padding:25px 29px!important;margin-bottom:20px!important}
  .kp-kat{padding:22px!important;border-color:rgba(255,255,255,.10)!important;box-shadow:0 12px 32px rgba(0,0,0,.13)}
- .kp-rulet-gomulu{padding:25px 30px;margin-top:30px}
- .kp-kupon-masa{gap:24px!important}
+  .kp-kupon-masa{gap:24px!important}
  .kp-h{letter-spacing:-.02em}
 }
-@media(min-width:1450px){.kp-ic{max-width:1380px!important}.kp-rulet-gomulu{padding:32px 42px}}
-</style>
-<style>
-.kp-rulet-bekliyor{padding:16px 18px;background:rgba(62,198,255,.045);border:1px dashed rgba(62,198,255,.26);border-radius:12px}
-.kp-rulet-bekliyor p{font:400 13px/1.65 Figtree,sans-serif;color:#BCCADA;margin:0}
-</style>
+@media(min-width:1450px){.kp-ic{max-width:1380px!important}</style>
+
 <style>
 /* Competition arena v1: read-only summary drawn from completed match weeks */
 .kp-arena{border:1px solid rgba(62,198,255,.23);border-radius:18px;overflow:hidden;background:radial-gradient(ellipse at 90% 0%,rgba(62,198,255,.11),transparent 58%),linear-gradient(145deg,#132332,#0D141E);margin-bottom:20px;color:#F4F0E6}
