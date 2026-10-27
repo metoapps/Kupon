@@ -1322,10 +1322,14 @@ function Kupon() {
                     H('button',{type:'button',className:'kp-arena-link',onClick:()=>{setMerkezSekme('ozet');setDetayAcik(true);}},'Haftalık ayrıntıları gör →'))));
         return H('section',{className:'pr-root'},
             haftalikOduller,
-            arena,
             H('div',{className:'pr-hero'},
                 H('div',{className:'pr-catisma'},React.createElement(CatismaFiguru),H('h1',{className:'kp-h'},'Manşet / Podyum.')),
                 gazeteGorunumu(true)),
+            H('aside',{className:'kp-arena-kose','aria-label':'Genel klasman kısayolu'},
+                H('span',{className:'kp-arena-etiket'},'GENEL KLASMAN'),
+                H('h3',null,'Sahada kim önde?'),
+                H('div',{className:'kp-arena-kose-liste'},genelSirali.slice(0,3).map((x,i)=>H('div',{key:x.slug},H('span',null,(i+1)+'. '+x.isim),H('strong',null,x.genel+' puan')))),
+                H('button',{type:'button',className:'kp-arena-link',onClick:()=>setSekme('klasman')},'Tüm sıralama →')),
             anketGorunumu(),
             H('div',{className:'pr-tabs','aria-label':'Sezon merkezi bölümleri'},[['ozet','Haftalık özet'],['rekabet','Rekabet'],['istatistik','İstatistik'],['koleksiyon','Koleksiyon'],['gecmis','İşlemler'],['ayar','Ayarlar']].map(([id,label])=>H('button',{key:id,className:merkezSekme===id?'on':'','aria-pressed':merkezSekme===id,onClick:()=>{setMerkezSekme(id);if(id==='gecmis')gunlukYukle();}},label))),
             merkezSekme==='ozet'&&H(React.Fragment,null,
@@ -2510,13 +2514,10 @@ function Kupon() {
         const verilen = (mag.zekat || []).filter(z => z.veren === slug).reduce((s, z) => s + (+z.miktar || 0), 0);
         const alinan = (mag.zekat || []).filter(z => z.alan === slug).reduce((s, z) => s + (+z.miktar || 0), 0);
         const torba = (mag.erzak || []).filter(z => z.veren === slug).reduce((s, z) => s + (+z.miktar || 0), 0);
-        const ayGiris = ((ay && ay.girisler) || []).filter(g => g.slug === slug).reduce((s, g) => s + (+g.miktar || 0), 0);
-        const ayOdul = ((ay && ay.gecmis) || []).filter(g => g.kazanan === slug).reduce((s, g) => s + (+g.kasa || 0), 0);
-        const ceza = (mag.cezalar || []).filter(c => c.slug === slug).reduce((s, c) => s + (+c.miktar || 0), 0);
         const sigortaOdenen = (mag.sigorta || []).filter(s => s.slug === slug).reduce((s, x) => s + (+x.fiyat || 0), 0);
         const sigortaGelen = (mag.sigorta || []).filter(s => s.slug === slug).reduce((s, x) => s + sigortaOdeme(x), 0);
         const milli = milliOdulToplam(slug);
-        return Math.round((gelir - harcama - verilen - torba + alinan - ayGiris + ayOdul - ceza - sigortaOdenen + sigortaGelen + milli) * 100) / 100;
+        return Math.round((gelir - harcama - verilen - torba + alinan - sigortaOdenen + sigortaGelen + milli) * 100) / 100;
     };
     const servetHesap = (slug, mag = magaza) => {
         const mal = (mag.alimlar || []).filter(a => a.slug === slug).reduce((s, a) => s + (+a.fiyat || 0), 0);
@@ -2572,86 +2573,6 @@ function Kupon() {
     function kerizToplam(mag, ay) {
         const a = ay || ayakta;
         return Math.round((kerizBekleyen(mag, a) + (+(a && a.kasa) || 0)) * 100) / 100;
-    }
-    async function kerizKes() {
-        if (MISAFIR) return "";
-        if (!aktif || !lig || !kurulum) return "";
-        if (!ilkMacBasladi) return "";
-        const oy = (kurulum.oyuncular || []);
-        if (!oy.length) return "";
-        const [kuponList, ayKayit] = await Promise.all([
-            depo.list("kpn:" + lig + ":kupon:" + aktif.hafta + ":"),
-            depo.get("kpn:" + lig + ":ayakta"),
-        ]);
-        const keys = (kuponList && kuponList.keys) || [];
-        const rows = keys.length ? await depo.getMany(keys) : [];
-        const veren = {};
-        rows.forEach(function (v) {
-            const p = okuJSON(v && v.value, null);
-            if (p && p.slug) veren[p.slug] = true;
-        });
-        const ay = ayaktaNorm(ayKayit && okuJSON(ayKayit.value, AYAKTA_BOS));
-        const hf = String(aktif.hafta);
-        const picks = (ay.secimler && ay.secimler[hf]) || {};
-        const eklenen = [];
-        await magazaKaydet(function (m) {
-            if (!Array.isArray(m.cezalar)) m.cezalar = [];
-            function varMi(slug, tur) {
-                return m.cezalar.some(function (c) { return c.slug === slug && +c.hafta === +aktif.hafta && c.tur === tur; });
-            }
-            oy.forEach(function (o) {
-                if (!veren[o.slug] && !varMi(o.slug, "kupon")) {
-                    m.cezalar.push({ id: "kz-kupon-" + aktif.hafta + "-" + o.slug, slug: o.slug, hafta: aktif.hafta, tur: "kupon", miktar: CEZA_KUPON, zaman: Date.now() });
-                    eklenen.push({ isim: o.isim, tur: "kupon", miktar: CEZA_KUPON });
-                }
-
-            });
-            return m;
-        });
-        if (eklenen.length) {
-            const txt = eklenen.map(function (x) { return x.isim + " · " + (x.tur === "kupon" ? "kupon yok" : "rulet yok") + " · " + paraYaz(x.miktar); }).join(" · ");
-            await gunlukYaz(audit("Keriz Parası", aktif.hafta + ". hf · ilk maç · " + txt));
-            setBilgi("Keriz Parası · " + txt);
-            return txt;
-        }
-        return "";
-    }
-    const kerizRef = useRef(0);
-    useEffect(function () {
-        if (MISAFIR) return;
-        if (ekran !== "oyun" || !aktif || !ilkMacBasladi) return;
-        if (Date.now() - kerizRef.current < 15000) return;
-        kerizRef.current = Date.now();
-        kerizKes().catch(function () {});
-    }, [aktif && aktif.hafta, ilkMacBasladi, ekran]);
-    function kerizKutusu() {
-        const bekleyen = kerizBekleyenListe(magaza, ayakta);
-        const girisler = ((ayakta && ayakta.girisler) || []).filter(function (g) { return +g.tur === +(ayakta.tur || 1); });
-        const toplam = kerizToplam(magaza, ayakta);
-        const ad = function (sl) {
-            const o = ((kurulum && kurulum.oyuncular) || []).find(function (x) { return x.slug === sl; });
-            return (o && o.isim) || sl;
-        };
-        const satirlar = bekleyen.slice().sort(function (a, b) { return b.zaman - a.zaman; }).map(function (c) {
-            return H("div", { key: c.id, className: "pr-row" },
-                H("span", null, ad(c.slug) + " · " + c.hafta + ". hf · " + (c.tur === "kupon" ? "kupon yok" : "rulet yok")),
-                H("strong", null, paraYaz(c.miktar)));
-        }).concat(girisler.map(function (g, i) {
-            return H("div", { key: "g-" + g.slug + "-" + i, className: "pr-row" },
-                H("span", null, ad(g.slug) + " · rulet girişi"),
-                H("strong", null, paraYaz(g.miktar)));
-        }));
-        return H("div", { className: "kp-kat kz-kasa" },
-            H("div", { className: "kp-et" }, "Kasa: Keriz Parası"),
-            H("strong", { className: "kz-tutar" }, H(SayanPara, { hedef: toplam, yaz: paraYaz })),
-            H("p", { className: "pr-muted" }, "Rulet girişi (" + paraYaz(AYAKTA_UCRET) + ") ile kuponu/" + "ruleti olmayanların cezası (" + paraYaz(CEZA_KUPON) + " / " + paraYaz(CEZA_RULET) + ") burada birikir. Ruleti kazanan alır. Herkes elenirse sonraki tura kalır."),
-            satirlar.length ? satirlar.slice(0, 12) : H("p", { className: "pr-muted", style: { marginBottom: 0 } }, "Henüz birikim yok."));
-    }
-    function kerizSerit() {
-        return H("div", { className: "kp-kat kz-kasa", style: { padding: "10px 14px" } },
-            H("div", { className: "pr-row", style: { padding: 0, border: "none" } },
-                H("span", { style: { fontWeight: 700 } }, "Kasa: Keriz Parası"),
-                H("strong", { className: "kz-tutar", style: { fontSize: 20, margin: 0 } }, paraYaz(kerizToplam(magaza, ayakta)))));
     }
     function sonKapaliHafta() {
         const w = (tablo && tablo.haftalar) || [];
@@ -2818,113 +2739,6 @@ function Kupon() {
         if (ayakta.turBitisHafta != null && +ayakta.turBitisHafta === +aktif.hafta) return false;
         if (ayakta.baslangicHafta == null) return true;
         return +ayakta.baslangicHafta === +aktif.hafta;
-    }
-    async function ayaktaGir() {
-        if (!ben) throw new Error("Giriş yok.");
-        if (!aktif || ruletKapali) throw new Error("İlk maç başladı. Rulet bu hafta kapandı.");
-        if (!ayaktaGirisAcik()) throw new Error("Bu tur başladı. Sonraki turda girersin.");
-        const y = await ayaktaKaydet(function (a) {
-            if (a.girenler.indexOf(ben.slug) >= 0) throw new Error("Bu turdasın.");
-            const n = nakitHesap(ben.slug, magaza, a);
-            if (n < AYAKTA_UCRET) throw new Error("Giriş " + paraYaz(AYAKTA_UCRET) + ". Bakiyen " + paraYaz(n) + ".");
-            a.girenler.push(ben.slug);
-            a.canli.push(ben.slug);
-            a.girisler.push({ slug: ben.slug, tur: a.tur, miktar: AYAKTA_UCRET, zaman: Date.now() });
-            a.kasa = Math.round((a.kasa + AYAKTA_UCRET) * 100) / 100;
-            if (a.baslangicHafta == null) a.baslangicHafta = +aktif.hafta;
-            return a;
-        }, "Tura girdin. " + paraYaz(AYAKTA_UCRET) + " Keriz Parası kasasına yazıldı. Bu hafta bir takım seç.");
-        setAyGirisOnay(false);
-        await gunlukYaz(audit("Rulet", ben.isim + " tur " + y.tur + " · giriş " + paraYaz(AYAKTA_UCRET)));
-    }
-    async function ayaktaKilitle() {
-        if (!ben) throw new Error("Giriş yok.");
-        if (!aktif || ruletKapali) throw new Error("İlk maç başladı. El kilitlenemez.");
-        if (aySec == null) throw new Error("Takım seç.");
-        const idx = +aySec;
-        await ayaktaKaydet(function (a) {
-            if (a.canli.indexOf(ben.slug) < 0) throw new Error("Bu turda hayatta değilsin.");
-            const hf = String(aktif.hafta);
-            if (!a.secimler[hf]) a.secimler[hf] = {};
-            if (a.secimler[hf][ben.slug] != null) throw new Error("Bu hafta seçimin kilitli.");
-            const kullan = a.kullanilan[ben.slug] || [];
-            if (kullan.indexOf(idx) >= 0) throw new Error("Bu takımı bu turda kullandın.");
-            const oynar = (aktif.maclar || []).some(function (m) { return +m.e === idx || +m.d === idx; });
-            if (!oynar) throw new Error("Bu takım bu hafta oynamıyor.");
-            a.secimler[hf][ben.slug] = idx;
-            a.kullanilan[ben.slug] = kullan.concat([idx]);
-            return a;
-        }, T(idx).ad + " kilitlendi. Elin gizli — maçın bitince masaya düşer.");
-        setAySec(null);
-        setAySecOnay(false);
-        await gunlukYaz(audit("Rulet kilit", ben.isim + " · kör · " + aktif.hafta + ". hf"));
-    }
-    async function ayaktaSonucIsle(h, opts) {
-        if (MISAFIR) return "";
-        const teslim = !!(opts && opts.teslimKapali);
-        const zorla = !!(opts && opts.zorla);
-        if (!h || h.no == null) return "";
-        let ilanlar = [];
-        let bitis = "";
-        const magKayit = await depo.get("kpn:" + lig + ":magaza");
-        const magSnap = (magKayit && okuJSON(magKayit.value, MAGAZA_BOS)) || MAGAZA_BOS;
-        const y = await ayaktaKaydet(function (a) {
-            const r = ayaktaUygulaSonuclar(a, h, teslim, zorla);
-            ilanlar = r.ilanlar;
-            bitis = r.bitisMesaj;
-            if (bitis === "kazandi" && a.gecmis && a.gecmis.length) {
-                const g = a.gecmis[a.gecmis.length - 1];
-                if (g && g.kazanan && !g.devir && !g.kerizEklendi) {
-                    const bekleyen = kerizBekleyenListe(magSnap, a);
-                    const ids = bekleyen.map(function (c) { return c.id; }).filter(Boolean);
-                    const extra = bekleyen.reduce(function (s, c) { return s + (+c.miktar || 0); }, 0);
-                    g.kasa = Math.round((+g.kasa + extra) * 100) / 100;
-                    g.kerizIds = ids;
-                    g.kerizEklendi = true;
-                }
-            }
-            return r.a;
-        });
-        if (bitis === "kazandi") {
-            const g = y && y.gecmis && y.gecmis[y.gecmis.length - 1];
-            const ids = (g && g.kerizIds) || [];
-            if (ids.length) {
-                const set = {};
-                ids.forEach(function (id) { set[id] = true; });
-                await magazaKaydet(function (m) {
-                    m.cezalar = (m.cezalar || []).map(function (c) {
-                        if (set[c.id] && !c.odendi) {
-                            c.odendi = true;
-                            c.odemeZaman = Date.now();
-                        }
-                        return c;
-                    });
-                    return m;
-                });
-            }
-        }
-        if (ilanlar.length || bitis) {
-            const parca = ilanlar.map(function (x) {
-                const ad = oyuncuAd(x.slug);
-                const takimAd = x.takim != null ? T(x.takim).ad : "";
-                if (x.neden === "G") return ad + " kaldı · " + ruletNedenYaz(x.neden, takimAd) + (x.mucize ? " · Mucize %" + x.yuzde : "");
-                return ad + " elendi · " + ruletNedenYaz(x.neden, takimAd);
-            });
-            if (bitis === "kazandi" && y && y.gecmis && y.gecmis.length) {
-                const g = y.gecmis[y.gecmis.length - 1];
-                parca.push(oyuncuAd(g.kazanan) + " ruleti kazandı · Keriz Parası " + paraYaz(g.kasa));
-            } else if (bitis === "devir") {
-                parca.push("Herkes elendi. Keriz Parası sonraki tura devretti.");
-            }
-            const txt = parca.join(" · ");
-            await gunlukYaz(audit("Rulet", h.no + ". hf · " + txt));
-            setBilgi(txt);
-            return txt;
-        }
-        return "";
-    }
-    async function ayaktaHaftaBitir(h) {
-        return ayaktaSonucIsle(h, { teslimKapali: true, zorla: true });
     }
     const aktifOranlar = useMemo(() => {
         if (!aktif || !aktif.maclar) return [];
@@ -5097,6 +4911,13 @@ html,body,#kok,.kp,.kp *{cursor:url("data:image/png;base64,iVBORw0KGgoAAAANSUhEU
 .kp-manset-odul-metin p{font:400 13px/1.65 Figtree,sans-serif;color:#D5DFE7;margin:0}
 @media(max-width:880px){.kp-manset-odul-haberler{grid-template-columns:1fr}}
 @media(max-width:450px){.kp-manset-odul-haber{grid-template-columns:110px minmax(0,1fr);gap:9px;padding:10px}.kp-manset-odul-gorsel .kp-odul-sahne{height:120px}.kp-manset-odul-gorsel img{max-height:120px}.kp-manset-odul-metin h3{font-size:20px}.kp-manset-odul-metin p{font-size:12px}}
+</style><style>
+.kp-arena-kose{max-width:350px;margin:3px 0 23px auto;padding:12px 15px;border:1px solid rgba(110,154,181,.19);border-radius:12px;background:rgba(12,21,34,.58)}
+.kp-arena-kose h3{font:700 16px Fraunces,Georgia,serif;color:#E7EBF1;margin:6px 0 9px}
+.kp-arena-kose-liste>div{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:4px 0;color:#B5C7D2;font:500 12px Figtree,sans-serif}
+.kp-arena-kose-liste strong{font:600 11px 'IBM Plex Mono',monospace;color:#E1DFD6}
+.kp-arena-kose .kp-arena-link{margin-top:10px;min-height:33px;font-size:11px;padding:6px 11px}
+@media(max-width:600px){.kp-arena-kose{max-width:100%;margin:0 0 17px;padding:11px 13px}}
 </style></body>
 </html>
 
