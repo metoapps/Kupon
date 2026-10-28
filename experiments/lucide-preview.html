@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="dark">
+<title>Kupon · Lucide simge denemesi</title>
+<style>
+:root{color-scheme:dark;font-family:system-ui,-apple-system,sans-serif;background:#070B14;color:#F3E8D6}*{box-sizing:border-box}body{margin:0;padding:24px 16px}.wrap{max-width:670px;margin:auto}h1{font-size:1.7rem;margin-bottom:6px}p{color:#a9b5c9;line-height:1.55}.panel{margin-top:20px;background:#111b2c;border:1px solid #32415a;border-radius:18px;padding:20px}.eyebrow{color:#bfae8c;font-size:.75rem;letter-spacing:.13em;text-transform:uppercase}.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:11px;margin-top:16px}.tile{display:flex;align-items:center;gap:10px;min-height:56px;padding:13px;background:#1a273a;border:1px solid #354762;border-radius:11px;font-size:.95rem}.tile svg{width:22px;height:22px;stroke:#e3bd78;flex:none}.status{margin-top:18px;padding:12px;border:1px solid #46536a;border-radius:10px;font-size:.88rem;color:#bdc9d8}a{color:#eac786}.note{font-size:.86rem}button{font:inherit} @media (max-width:380px){.grid{grid-template-columns:1fr}}
+</style>
+</head>
+<body><main class="wrap">
+<h1>Kupon · Lucide denemesi</h1>
+<p>Bu sayfa <strong>yalnızca simge tasarımını</strong> denemek içindir. Kupon'un canlı menüsünü, genel klasmanını, puanlarını, ödüllerini veya verilerini değiştirmez.</p>
+<section class="panel" aria-label="Simge örnekleri">
+<div class="eyebrow">Olası menü simgeleri</div>
+<div class="grid">
+<div class="tile"><i data-lucide="house" aria-hidden="true"></i><span>Merkez</span></div>
+<div class="tile"><i data-lucide="trophy" aria-hidden="true"></i><span>Genel Klasman</span></div>
+<div class="tile"><i data-lucide="calendar-days" aria-hidden="true"></i><span>Haftalık Sonuçlar</span></div>
+<div class="tile"><i data-lucide="chart-no-axes-column" aria-hidden="true"></i><span>İstatistik</span></div>
+<div class="tile"><i data-lucide="medal" aria-hidden="true"></i><span>Ödüller</span></div>
+<div class="tile"><i data-lucide="users" aria-hidden="true"></i><span>Rekabet</span></div>
+<div class="tile"><i data-lucide="history" aria-hidden="true"></i><span>Geçmiş</span></div>
+<div class="tile"><i data-lucide="settings" aria-hidden="true"></i><span>Ayarlar</span></div>
+</div></section>
+<div class="status" id="durum" role="status">Lucide simgeleri yükleniyor…</div>
+<p class="note">Lucide sürümü: <strong>1.55.0 (sabitlenmiş)</strong> · Kaynak: <a href="https://github.com/lucide-icons/lucide">lucide-icons/lucide</a> · ISC lisansı. Simge yüklenemezse yazılar görünür kalır.</p>
+</main>
+<script src="https://unpkg.com/lucide@1.55.0/dist/umd/lucide.min.js" defer></script>
+<script defer>
+window.addEventListener('DOMContentLoaded',function(){
+var d=document.getElementById('durum');
+if(window.lucide && typeof window.lucide.createIcons==='function'){
+  try{window.lucide.createIcons();var count=document.querySelectorAll('.tile svg').length;d.textContent=count===8?'8 simge başarıyla oluşturuldu.':'Simge kontrolü: '+count+'/8. Eksik simgeleri inceleyin.';}catch(e){d.textContent='Simge yükleme sorunu: '+e.message;}
+}else{d.textContent='Lucide indirilemedi; metin etiketleri çalışmaya devam ediyor.';}
+});
+</script>
+</body></html>
