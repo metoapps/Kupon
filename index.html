@@ -4454,6 +4454,18 @@ html,body,#kok,.kp,.kp *{cursor:url("data:image/png;base64,iVBORw0KGgoAAAANSUhEU
 .kp-arena-kose-liste strong{font:600 11px 'IBM Plex Mono',monospace;color:#E1DFD6}
 .kp-arena-kose .kp-arena-link{margin-top:10px;min-height:33px;font-size:11px;padding:6px 11px}
 @media(max-width:600px){.kp-arena-kose{max-width:100%;margin:0 0 17px;padding:11px 13px}}
+</style><style>
+/* Desktop editorial width repair: never squeeze award stories into narrow columns */
+.kp-gazete,.kp-gazete-govde,.kp-manset-ozet{min-width:0;width:100%;box-sizing:border-box}
+.kp-manset-odul-haberler{display:grid!important;grid-template-columns:minmax(0,1fr)!important;gap:16px!important;width:100%;min-width:0}
+.kp-manset-odul-haber{display:grid!important;grid-template-columns:minmax(125px,215px) minmax(0,1fr)!important;gap:clamp(14px,3vw,28px)!important;width:100%;min-width:0;box-sizing:border-box;align-items:center}
+.kp-manset-odul-metin{min-width:0;max-width:66ch}
+.kp-manset-odul-metin h3{overflow-wrap:normal;word-break:normal;hyphens:none;font-size:clamp(24px,2.8vw,38px);line-height:1.08}
+.kp-manset-odul-metin p{overflow-wrap:normal;word-break:normal;font-size:clamp(14px,1.2vw,16px);line-height:1.65}
+.kp-manset-odul-gorsel{min-width:0;display:flex;justify-content:center}
+@media(min-width:1450px){.kp-manset-odul-haberler{grid-template-columns:repeat(2,minmax(0,1fr))!important}.kp-manset-odul-haber{grid-template-columns:minmax(95px,145px) minmax(0,1fr)!important}.kp-manset-odul-metin h3{font-size:clamp(23px,1.9vw,31px)}}
+@media(max-width:700px){.kp-manset-odul-haber{grid-template-columns:110px minmax(0,1fr)!important}.kp-manset-odul-metin h3{font-size:clamp(19px,4.2vw,25px)}.kp-manset-odul-metin p{font-size:12px}}
+@media(max-width:390px){.kp-manset-odul-haber{grid-template-columns:minmax(0,1fr)!important}.kp-manset-odul-gorsel .kp-odul-sahne{height:130px}}
 </style></body>
 </html>
 
